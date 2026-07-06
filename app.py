@@ -324,8 +324,19 @@ def main(page: ft.Page):
 
     # Al rotar el celular o cambiar el tamaño de la ventana, volvemos a
     # dibujar la pantalla actual para que los anchos responsivos se recalculen.
+    # OJO: en celular, cuando aparece/desaparece el teclado también se
+    # dispara on_resize (cambia el alto, no el ancho). Si redibujáramos la
+    # pantalla entera en ese momento, se perdía lo que la persona estaba
+    # escribiendo y a veces los botones quedaban sin responder. Por eso acá
+    # solo redibujamos si el ANCHO cambió de verdad (rotación de pantalla),
+    # ignorando los cambios de alto por el teclado.
+    _ultimo_ancho = {"valor": None}
+
     def _al_cambiar_tamano(e):
-        if historial:
+        ancho_actual = page.width
+        ancho_previo = _ultimo_ancho["valor"]
+        _ultimo_ancho["valor"] = ancho_actual
+        if historial and ancho_previo is not None and ancho_actual is not None and abs(ancho_actual - ancho_previo) > 20:
             historial[-1]()
 
     page.on_resize = _al_cambiar_tamano
@@ -359,7 +370,15 @@ def main(page: ft.Page):
         if mostrar_volver and len(historial) > 1:
             filas.append(
                 ft.Row(
-                    [ft.IconButton(icon=ft.Icons.ARROW_BACK, tooltip="Volver", on_click=volver)],
+                    [
+                        ft.IconButton(
+                            icon=ft.Icons.ARROW_BACK,
+                            tooltip="Volver",
+                            on_click=volver,
+                            icon_color=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.BLUE_400,
+                        )
+                    ],
                     alignment=ft.MainAxisAlignment.START
                 )
             )
@@ -628,7 +647,7 @@ def main(page: ft.Page):
         )
 
         boton_resumen = ft.OutlinedButton(
-            "Resumen de la historia",
+            "Resumen",
             on_click=lambda _: ir_a(mostrar_resumen_historia),
             width=ancho_campo(),
             height=50,
@@ -648,20 +667,102 @@ def main(page: ft.Page):
             iniciar_countdown(texto_countdown, token)
 
     # ==========================================================
-    # PANTALLA: RESUMEN DE LA HISTORIA
+    # PANTALLA: RESUMEN
     # ----------------------------------------------------------
-    # Todavía no está lista. Se irá completando/actualizando a medida
-    # que el usuario complete encuestas (una por sesión).
+    # Trae de Supabase todas las respuestas de este usuario y arma un
+    # resumen agrupado por día (más reciente primero), mostrando qué
+    # comió/bebió (o "no tuvo") en cada comida de cada día.
     # ==========================================================
+    def obtener_registros_usuario(email):
+        try:
+            resp = requests.get(
+                SUPABASE_URL,
+                headers=HEADERS,
+                params={"usuario": f"eq.{email}", "select": "*", "order": "fecha.desc"},
+                timeout=10,
+            )
+            if not resp.ok:
+                print(f"Error Supabase GET encuesta_comidas [{resp.status_code}]: {resp.text}")
+                return None
+            return resp.json()
+        except Exception as e:
+            print("Error de red (resumen):", repr(e))
+            return None
+
     def mostrar_resumen_historia():
+        pantalla(ft.ProgressRing(), ft.Text("Cargando resumen...", size=18, color=ft.Colors.BLUE), mostrar_volver=False)
+
+        if estado["modo_local"]:
+            pantalla(
+                ft.Icon(ft.Icons.AUTO_STORIES, size=50, color=ft.Colors.BLUE_GREY),
+                ft.Text("Resumen", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                ft.Text(
+                    "El acceso piloto no guarda historial en la base de datos. "
+                    "Iniciá sesión con tu email para ver tu resumen real.",
+                    text_align=ft.TextAlign.CENTER,
+                ),
+            )
+            return
+
+        registros = obtener_registros_usuario(estado["email"])
+
+        if registros is None:
+            pantalla(
+                ft.Icon(ft.Icons.ERROR_OUTLINE, size=50, color=ft.Colors.RED),
+                ft.Text("No pudimos cargar tu resumen. Revisá tu conexión e intentá de nuevo.", text_align=ft.TextAlign.CENTER),
+            )
+            return
+
+        if not registros:
+            pantalla(
+                ft.Icon(ft.Icons.AUTO_STORIES, size=50, color=ft.Colors.BLUE_GREY),
+                ft.Text("Todavía no completaste ninguna encuesta.", text_align=ft.TextAlign.CENTER),
+            )
+            return
+
+        # Agrupamos las respuestas por día y, dentro de cada día, por comida.
+        por_dia = {}
+        for r in registros:
+            dia = (r.get("fecha") or "")[:10]
+            por_dia.setdefault(dia, {}).setdefault(r.get("momento_dia") or "", []).append(r)
+
+        tarjetas = []
+        for dia in sorted(por_dia.keys(), reverse=True):
+            filas_dia = []
+            for comida in COMIDAS_DEL_DIA:
+                regs_comida = por_dia[dia].get(comida)
+                if not regs_comida:
+                    continue
+
+                items = [r for r in regs_comida if r.get("tipo_registro") == "item"]
+                sin_comida = any(
+                    r.get("tipo_registro") == "comida_hora" and r.get("tuvo_comida") is False
+                    for r in regs_comida
+                )
+
+                if items:
+                    detalle = ", ".join(
+                        f"{it.get('item_nombre')} ({it.get('item_detalle')}, {it.get('item_tamano')})"
+                        for it in items
+                    )
+                    filas_dia.append(ft.Text(f"• {comida}: {detalle}"))
+                elif sin_comida:
+                    filas_dia.append(ft.Text(f"• {comida}: no tuvo"))
+
+            if filas_dia:
+                tarjetas.append(
+                    ft.Card(
+                        content=ft.Container(
+                            padding=15,
+                            content=ft.Column([ft.Text(dia, weight=ft.FontWeight.BOLD, size=16)] + filas_dia, spacing=5),
+                        ),
+                        width=ancho_campo(340),
+                    )
+                )
+
         pantalla(
-            ft.Icon(ft.Icons.AUTO_STORIES, size=50, color=ft.Colors.BLUE_GREY),
-            ft.Text("Resumen de tu historia", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-            ft.Text(
-                "Todavía estamos armando esta sección. Se va a ir actualizando "
-                "automáticamente cada vez que completes una encuesta.",
-                text_align=ft.TextAlign.CENTER,
-            ),
+            ft.Text("Resumen", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            *tarjetas,
         )
 
     # ==========================================================
@@ -819,8 +920,11 @@ def main(page: ft.Page):
                 input_bebida.value = ""
                 actualizar_lista_ui()
 
-        input_comida = ft.TextField(label="Escribí una comida y apretá Enter", on_submit=agregar_comida, width=ancho_campo())
-        input_bebida = ft.TextField(label="Escribí una bebida y apretá Enter", on_submit=agregar_bebida, width=ancho_campo())
+        # Además de apretar Enter, dejamos un botón "Agregar" explícito: en
+        # varios celulares el teclado virtual no dispara el Enter/submit de
+        # forma confiable, y sin botón la lista de abajo parecía no actualizarse.
+        input_comida = ft.TextField(label="Escribí una comida", on_submit=agregar_comida, width=ancho_campo(220), expand=True)
+        input_bebida = ft.TextField(label="Escribí una bebida", on_submit=agregar_bebida, width=ancho_campo(220), expand=True)
 
         def continuar(e):
             if len(estado["items_temporales"]) > 0:
@@ -833,8 +937,10 @@ def main(page: ft.Page):
 
         pantalla(
             titulo,
-            ft.Text("Comida", weight=ft.FontWeight.BOLD), input_comida,
-            ft.Text("Bebida", weight=ft.FontWeight.BOLD), input_bebida,
+            ft.Text("Comida", weight=ft.FontWeight.BOLD),
+            ft.Row([input_comida, ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.BLUE, tooltip="Agregar", on_click=agregar_comida)], width=ancho_campo()),
+            ft.Text("Bebida", weight=ft.FontWeight.BOLD),
+            ft.Row([input_bebida, ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.BLUE, tooltip="Agregar", on_click=agregar_bebida)], width=ancho_campo()),
             ft.Divider(),
             lista_ui,
             ft.Divider(color=ft.Colors.TRANSPARENT),
