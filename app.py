@@ -304,6 +304,11 @@ def main(page: ft.Page):
         "ultima_fecha_completado": None,  # "YYYY-MM-DD" o None
         "_dashboard_token": None,         # controla el hilo de la cuenta regresiva
 
+        "nombre": "",       # cómo se lo saluda ("Hola, {nombre}!"); si está vacío se usa el email
+        "edad": None,
+        "educacion": "",
+        "ocupacion": "",
+
         "indice_comida": 0,
         "hora_ingresada": "",
 
@@ -466,6 +471,13 @@ def main(page: ft.Page):
         estado["sesiones_historicas"] = usuario.get("sesiones_historicas") or 0
         estado["ultima_fecha_completado"] = usuario.get("ultima_fecha_completado")
         estado["modo_local"] = local
+        estado["nombre"] = usuario.get("nombre") or ""
+        estado["edad"] = usuario.get("edad")
+        estado["educacion"] = usuario.get("educacion") or ""
+        estado["ocupacion"] = usuario.get("ocupacion") or ""
+        # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
+        # principal no lleva de nuevo a la pantalla de login.
+        historial.clear()
         ir_a(mostrar_dashboard)
 
     # Login con Google: se configura solo si están las 3 variables de
@@ -509,6 +521,10 @@ def main(page: ft.Page):
                     "id": "local-piloto",
                     "sesiones_historicas": estado.get("sesiones_historicas", 0),
                     "ultima_fecha_completado": estado.get("ultima_fecha_completado"),
+                    "nombre": estado.get("nombre", ""),
+                    "edad": estado.get("edad"),
+                    "educacion": estado.get("educacion", ""),
+                    "ocupacion": estado.get("ocupacion", ""),
                 }
                 entrar_con_usuario(usuario_local, local=True)
                 return
@@ -601,6 +617,20 @@ def main(page: ft.Page):
 
         threading.Thread(target=loop, daemon=True).start()
 
+    def cerrar_sesion(e):
+        estado["email"] = ""
+        estado["usuario_id"] = None
+        estado["modo_local"] = False
+        estado["sesiones_historicas"] = 0
+        estado["ultima_fecha_completado"] = None
+        estado["nombre"] = ""
+        estado["edad"] = None
+        estado["educacion"] = ""
+        estado["ocupacion"] = ""
+        page.logout()
+        historial.clear()
+        ir_a(mostrar_login)
+
     def mostrar_dashboard():
         estado["indice_comida"] = 0
         estado["datos_finales"] = []
@@ -639,7 +669,7 @@ def main(page: ft.Page):
         )
 
         boton_comenzar = ft.ElevatedButton(
-            "Registrar últimas 24 horas" if habilitado else "Ya completaste el registro de hoy",
+            "Completar encuesta de hoy" if habilitado else "Ya completaste el registro de hoy",
             on_click=(lambda _: ir_a(mostrar_instrucciones)) if habilitado else None,
             disabled=not habilitado,
             width=ancho_campo(),
@@ -653,18 +683,118 @@ def main(page: ft.Page):
             height=50,
         )
 
+        encabezado = ft.Row(
+            [
+                ft.IconButton(
+                    icon=ft.Icons.PERSON,
+                    tooltip="Mi perfil",
+                    on_click=lambda _: ir_a(mostrar_perfil),
+                    icon_color=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.BLUE_400,
+                )
+            ],
+            alignment=ft.MainAxisAlignment.END,
+        )
+
+        nombre_mostrar = estado["nombre"] or estado["email"]
+
         pantalla(
-            ft.Text(f"Hola, {estado['email']}!", size=24, weight=ft.FontWeight.BOLD),
+            encabezado,
+            ft.Text(f"Hola, {nombre_mostrar}!", size=24, weight=ft.FontWeight.BOLD),
             tarjeta_stats,
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             boton_comenzar,
             boton_resumen,
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            ft.TextButton("Cerrar sesión", on_click=cerrar_sesion),
         )
 
         if not habilitado:
             token = object()
             estado["_dashboard_token"] = token
             iniciar_countdown(texto_countdown, token)
+
+    # ==========================================================
+    # PANTALLA: MI PERFIL
+    # ----------------------------------------------------------
+    # El nombre que la persona cargue acá es el que usa la app para
+    # saludarla ("Hola, {nombre}!") en el menú principal.
+    # ==========================================================
+    OPCIONES_EDUCACION = [
+        "Primario", "Secundario", "Terciario", "Universitario", "Posgrado", "Otro",
+    ]
+
+    def guardar_perfil_supabase(nombre, edad, educacion, ocupacion):
+        try:
+            resp = requests.patch(
+                f"{SUPABASE_USUARIOS_URL}?id=eq.{estado['usuario_id']}",
+                headers=HEADERS,
+                json={"nombre": nombre, "edad": edad, "educacion": educacion, "ocupacion": ocupacion},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            print("Error de red (guardar perfil):", e)
+            return False
+
+    def mostrar_perfil():
+        input_nombre = ft.TextField(label="Nombre", value=estado["nombre"], width=ancho_campo())
+        input_edad = ft.TextField(
+            label="Edad",
+            value=str(estado["edad"]) if estado["edad"] is not None else "",
+            width=ancho_campo(),
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        dropdown_educacion = ft.Dropdown(
+            label="Nivel educativo",
+            options=[ft.dropdown.Option(op) for op in OPCIONES_EDUCACION],
+            value=estado["educacion"] or None,
+            width=ancho_campo(),
+        )
+        input_ocupacion = ft.TextField(label="Ocupación", value=estado["ocupacion"], width=ancho_campo())
+        texto_error = ft.Text("", color=ft.Colors.RED)
+
+        def guardar(e):
+            edad_texto = (input_edad.value or "").strip()
+            edad_valor = None
+            if edad_texto:
+                if not edad_texto.isdigit():
+                    input_edad.error_text = "Ingresá un número"
+                    page.update()
+                    return
+                edad_valor = int(edad_texto)
+
+            input_edad.error_text = None
+            nombre_valor = (input_nombre.value or "").strip()
+            educacion_valor = dropdown_educacion.value or ""
+            ocupacion_valor = (input_ocupacion.value or "").strip()
+
+            estado["nombre"] = nombre_valor
+            estado["edad"] = edad_valor
+            estado["educacion"] = educacion_valor
+            estado["ocupacion"] = ocupacion_valor
+
+            if not estado["modo_local"]:
+                if not guardar_perfil_supabase(nombre_valor, edad_valor, educacion_valor, ocupacion_valor):
+                    texto_error.value = "No pudimos guardar los cambios. Revisá tu conexión e intentá de nuevo."
+                    page.update()
+                    return
+
+            historial.clear()
+            ir_a(mostrar_dashboard)
+
+        boton_guardar = ft.ElevatedButton("Guardar", on_click=guardar, width=ancho_campo(), height=50)
+
+        pantalla(
+            ft.Text("Mi perfil", size=24, weight=ft.FontWeight.BOLD),
+            input_nombre,
+            input_edad,
+            dropdown_educacion,
+            input_ocupacion,
+            texto_error,
+            boton_guardar,
+        )
 
     # ==========================================================
     # PANTALLA: RESUMEN
