@@ -5,9 +5,21 @@ import requests
 import unicodedata
 import difflib
 import os
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from datetime import time as time_cls
 from flet.auth.providers import GoogleOAuthProvider
+
+# La habilitación diaria de la encuesta (y la hora que se guarda en cada
+# respuesta) tiene que basarse siempre en el horario de Argentina, sin
+# importar en qué huso horario esté corriendo el servidor (Render corre en
+# UTC). Argentina no cambia de horario en el año (UTC-3 fijo), así que
+# alcanza con este offset fijo, sin depender de una base de datos de husos
+# horarios (zoneinfo) que no siempre está disponible en todos los entornos.
+ZONA_ARGENTINA = timezone(timedelta(hours=-3))
+
+
+def ahora_argentina():
+    return datetime.now(ZONA_ARGENTINA)
 
 
 # ==========================================================
@@ -588,11 +600,11 @@ def main(page: ft.Page):
             # Acceso piloto: siempre habilitada, para poder probar el flujo
             # completo las veces que haga falta sin esperar al día siguiente.
             return True
-        return estado["ultima_fecha_completado"] != date.today().isoformat()
+        return estado["ultima_fecha_completado"] != ahora_argentina().date().isoformat()
 
     def tiempo_restante_texto():
-        ahora = datetime.now()
-        medianoche = datetime.combine(date.today() + timedelta(days=1), datetime.min.time())
+        ahora = ahora_argentina()
+        medianoche = datetime.combine(ahora.date() + timedelta(days=1), datetime.min.time(), tzinfo=ZONA_ARGENTINA)
         segundos = max(0, int((medianoche - ahora).total_seconds()))
         horas, resto = divmod(segundos, 3600)
         minutos, segundos = divmod(resto, 60)
@@ -971,7 +983,7 @@ def main(page: ft.Page):
             clave = (estado["indice_comida"], "hora")
             registro = {
                 "usuario": estado["email"],
-                "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "fecha": ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S"),
                 "momento_dia": comida_actual,
                 "hora_consumo": hora_consumo,
                 "item_nombre": None,
@@ -1178,7 +1190,7 @@ def main(page: ft.Page):
 
             registro_final = {
                 "usuario": estado["email"],
-                "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "fecha": ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S"),
                 "momento_dia": comida_del_dia,
                 "hora_consumo": estado["hora_ingresada"],
                 "item_nombre": item_actual["nombre"],
@@ -1209,7 +1221,7 @@ def main(page: ft.Page):
     # PANTALLA 8: ENVÍO A NUBE Y AGRADECIMIENTO
     # ==========================================================
     def marcar_usuario_completado_hoy():
-        hoy = date.today().isoformat()
+        hoy = ahora_argentina().date().isoformat()
         nuevo_historico = estado["sesiones_historicas"] + 1
 
         if not estado["modo_local"]:
