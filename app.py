@@ -252,30 +252,38 @@ _CLAVES_NORMALIZADAS = {_normalizar_texto(clave): clave for clave in CATALOGO_DE
 _SINONIMOS_NORMALIZADOS = {_normalizar_texto(k): v for k, v in SINONIMOS_DETALLE.items()}
 
 
-def opciones_para_item(nombre_item):
-    # Tolera mayúsculas/tildes distintas, plurales y errores de tipeo
-    # comunes (ej: "milnesas", "Milanesa", "Milanesas" dan lo mismo).
+def clave_canonica_para_item(nombre_item):
+    # Resuelve el nombre que escribió la persona (con errores de tipeo,
+    # plurales, mayúsculas/tildes distintas) al nombre canónico del
+    # catálogo de arriba, o None si no coincide con nada conocido.
     normalizado = _normalizar_texto(nombre_item)
     if not normalizado:
-        return OPCIONES_GENERICAS
+        return None
 
     candidatos = [normalizado, _sin_plural(normalizado)]
 
     # 1) Coincidencia exacta (con o sin plural) contra claves o sinónimos
     for candidato in candidatos:
         if candidato in _CLAVES_NORMALIZADAS:
-            return CATALOGO_DETALLE[_CLAVES_NORMALIZADAS[candidato]]
+            return _CLAVES_NORMALIZADAS[candidato]
         if candidato in _SINONIMOS_NORMALIZADOS:
-            return CATALOGO_DETALLE[_SINONIMOS_NORMALIZADOS[candidato]]
+            return _SINONIMOS_NORMALIZADOS[candidato]
 
     # 2) Coincidencia difusa (tolera errores de tipeo) contra claves y sinónimos
     universo = {**_CLAVES_NORMALIZADAS, **_SINONIMOS_NORMALIZADOS}
     for candidato in candidatos:
         parecidos = difflib.get_close_matches(candidato, universo.keys(), n=1, cutoff=0.72)
         if parecidos:
-            return CATALOGO_DETALLE[universo[parecidos[0]]]
+            return universo[parecidos[0]]
 
-    return OPCIONES_GENERICAS
+    return None
+
+
+def opciones_para_item(nombre_item):
+    clave = clave_canonica_para_item(nombre_item)
+    if clave is None:
+        return OPCIONES_GENERICAS
+    return CATALOGO_DETALLE[clave]
 
 # ==========================================================
 # --- IMÁGENES ---
@@ -284,7 +292,24 @@ def opciones_para_item(nombre_item):
 # Si todavía NO tenés la imagen, dejá el valor en None y la app igual funciona.
 # ==========================================================
 FONDO = None                # Ej: "fondo.png"  -> fondo de todas las pantallas
-IMAGEN_PLATO = None          # Ej: "plato.png" (archivo dentro de assets/). Mientras esté en None, se usa un ícono de relleno.
+
+# Ilustración genérica que se muestra en la pantalla de "tamaño de la
+# porción". Como hay demasiadas comidas distintas para tener un dibujo de
+# cada una, usamos 4 ilustraciones a modo orientativo según el tipo de
+# comida/bebida (ver bebidas_calientes() e imagen_para_item() más abajo).
+BEBIDAS_CALIENTES = {"cafe con leche", "te", "mate"}
+
+
+def imagen_para_item(categoria, comida_del_dia, nombre_item):
+    if categoria == "Bebida":
+        clave = clave_canonica_para_item(nombre_item)
+        if clave in BEBIDAS_CALIENTES:
+            return "bebida_caliente.svg"
+        return "bebida_fria.svg"
+
+    if comida_del_dia in ("Desayuno", "Merienda"):
+        return "plato_desayuno.svg"
+    return "plato_comida.svg"
 
 
 def main(page: ft.Page):
@@ -490,7 +515,12 @@ def main(page: ft.Page):
         # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
         # principal no lleva de nuevo a la pantalla de login.
         historial.clear()
-        ir_a(mostrar_dashboard)
+        if estado["nombre"]:
+            ir_a(mostrar_dashboard)
+        else:
+            # Primera vez que entra este usuario: tiene que completar su
+            # perfil antes de poder usar la encuesta.
+            ir_a(mostrar_perfil)
 
     # Login con Google: se configura solo si están las 3 variables de
     # entorno (ver arriba). El resultado llega de forma asíncrona al
@@ -751,6 +781,10 @@ def main(page: ft.Page):
             return False
 
     def mostrar_perfil():
+        # Si todavía no cargó su nombre, es la primera vez que entra: hay
+        # que completar el perfil sí o sí antes de poder usar la encuesta.
+        es_primera_vez = not estado["nombre"]
+
         input_nombre = ft.TextField(label="Nombre", value=estado["nombre"], width=ancho_campo())
         input_edad = ft.TextField(
             label="Edad",
@@ -768,6 +802,13 @@ def main(page: ft.Page):
         texto_error = ft.Text("", color=ft.Colors.RED)
 
         def guardar(e):
+            nombre_valor = (input_nombre.value or "").strip()
+            if not nombre_valor:
+                input_nombre.error_text = "Ingresá tu nombre"
+                page.update()
+                return
+            input_nombre.error_text = None
+
             edad_texto = (input_edad.value or "").strip()
             edad_valor = None
             if edad_texto:
@@ -778,7 +819,6 @@ def main(page: ft.Page):
                 edad_valor = int(edad_texto)
 
             input_edad.error_text = None
-            nombre_valor = (input_nombre.value or "").strip()
             educacion_valor = dropdown_educacion.value or ""
             ocupacion_valor = (input_ocupacion.value or "").strip()
 
@@ -798,15 +838,18 @@ def main(page: ft.Page):
 
         boton_guardar = ft.ElevatedButton("Guardar", on_click=guardar, width=ancho_campo(), height=50)
 
-        pantalla(
-            ft.Text("Mi perfil", size=24, weight=ft.FontWeight.BOLD),
-            input_nombre,
-            input_edad,
-            dropdown_educacion,
-            input_ocupacion,
-            texto_error,
-            boton_guardar,
-        )
+        controles = [ft.Text("Contanos sobre vos" if es_primera_vez else "Mi perfil", size=24, weight=ft.FontWeight.BOLD)]
+        if es_primera_vez:
+            controles.append(
+                ft.Text(
+                    "Antes de empezar necesitamos algunos datos tuyos.",
+                    text_align=ft.TextAlign.CENTER,
+                    color=ft.Colors.GREY_700,
+                )
+            )
+        controles.extend([input_nombre, input_edad, dropdown_educacion, input_ocupacion, texto_error, boton_guardar])
+
+        pantalla(*controles, mostrar_volver=not es_primera_vez)
 
     # ==========================================================
     # PANTALLA: RESUMEN
@@ -1149,16 +1192,14 @@ def main(page: ft.Page):
             4: (280, "Muy grande")
         }
 
-        # Área fija donde se dibuja el plato: su tamaño nunca cambia, así el
-        # resto de la pantalla (título, texto, slider, botón) queda quieto.
-        # Adentro va la imagen real si ya la configuraste en IMAGEN_PLATO, o
-        # si no, un ícono de relleno que igual cambia de tamaño con el slider.
+        # Área fija donde se dibuja la ilustración: su tamaño nunca cambia,
+        # así el resto de la pantalla (título, texto, slider, botón) queda
+        # quieto. La ilustración es orientativa según el tipo de
+        # comida/bebida (ver imagen_para_item más arriba).
         AREA_DIBUJO = ancho_campo(280)
 
-        if IMAGEN_PLATO:
-            dibujo = ft.Image(src=IMAGEN_PLATO, width=180, height=180, fit=ft.BoxFit.CONTAIN)
-        else:
-            dibujo = ft.Icon(ft.Icons.RESTAURANT, size=180, color=ft.Colors.GREY_400)
+        imagen_src = imagen_para_item(item_actual["categoria"], comida_del_dia, item_actual["nombre"])
+        dibujo = ft.Image(src=imagen_src, width=180, height=180, fit=ft.BoxFit.CONTAIN)
 
         contenedor_dibujo = ft.Container(
             content=dibujo,
@@ -1172,11 +1213,8 @@ def main(page: ft.Page):
         def slider_cambiado(e):
             idx = int(e.control.value)
             nuevo_tamano, nuevo_nombre = configuraciones[idx]
-            if isinstance(dibujo, ft.Image):
-                dibujo.width = nuevo_tamano
-                dibujo.height = nuevo_tamano
-            else:
-                dibujo.size = nuevo_tamano
+            dibujo.width = nuevo_tamano
+            dibujo.height = nuevo_tamano
             texto_label.value = nuevo_nombre
             page.update()
 
@@ -1270,7 +1308,7 @@ def main(page: ft.Page):
             pantalla(
                 ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=60),
                 ft.Text("¡Muchas gracias!", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Volviendo al inicio...", size=14, color=ft.Colors.GREY_700),
+                ft.Text("Volviendo al menú de inicio...", size=14, color=ft.Colors.GREY_700),
                 mostrar_volver=False,
             )
 

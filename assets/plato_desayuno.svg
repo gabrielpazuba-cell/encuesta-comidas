@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- tostada de atras -->
+  <rect x="52" y="82" width="60" height="46" rx="8" fill="#E4B36B" stroke="#C8944C" stroke-width="3"/>
+  <!-- tostada de adelante, con mermelada -->
+  <rect x="72" y="98" width="62" height="46" rx="8" fill="#EFC784" stroke="#C8944C" stroke-width="3"/>
+  <rect x="82" y="108" width="42" height="12" rx="6" fill="#C6432F"/>
+
+  <!-- medialuna -->
+  <path d="M60 148 Q75 130 100 140 Q90 150 88 162 Q70 162 60 148 Z" fill="#DDA34C" stroke="#B9832F" stroke-width="2"/>
+</svg>
