@@ -432,6 +432,7 @@ def main(page: ft.Page):
         "sesiones_historicas": 0,
         "ultima_fecha_completado": None,  # "YYYY-MM-DD" o None
         "_dashboard_token": None,         # controla el hilo de la cuenta regresiva
+        "_latido_token": None,            # controla el hilo del latido (mantener viva la conexión)
 
         "nombre": "",       # cómo se lo saluda ("Hola, {nombre}!"); si está vacío se usa el email
         "edad": None,
@@ -551,6 +552,31 @@ def main(page: ft.Page):
             page.add(ft.Container(content=tarjeta, alignment=ft.Alignment.CENTER, expand=True))
 
         page.update()
+        _iniciar_latido()
+
+    # Late "latido" (heartbeat): en algunos casos Render corta la conexión
+    # en vivo con la app si pasa un ratito sin que viaje ningún dato entre
+    # el navegador y el servidor (a veces bastan varios segundos), y ahí
+    # parece que la app "deslogueó" cuando en realidad se reconectó de
+    # cero. Para evitarlo, mientras se está mostrando cualquier pantalla
+    # mandamos una actualización liviana cada 20 segundos, así la conexión
+    # nunca queda del todo quieta. Cada pantalla nueva cancela el latido
+    # de la anterior (por eso el token), para no ir acumulando hilos.
+    def _iniciar_latido():
+        token = object()
+        estado["_latido_token"] = token
+
+        def loop():
+            while estado.get("_latido_token") is token:
+                time.sleep(20)
+                if estado.get("_latido_token") is not token:
+                    return
+                try:
+                    page.update()
+                except Exception:
+                    return
+
+        threading.Thread(target=loop, daemon=True).start()
 
     # ==========================================================
     # PANTALLA 1: LOGIN / REGISTRO POR EMAIL
