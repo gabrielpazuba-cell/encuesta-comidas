@@ -690,7 +690,7 @@ def main(page: ft.Page):
             entrar_con_usuario(usuario, local=False)
 
         input_email = ft.TextField(label="Email", width=ancho_campo(), keyboard_type=ft.KeyboardType.EMAIL)
-        input_contrasena = ft.TextField(label="Contraseña (solo piloto)", width=ancho_campo(), password=True, can_reveal_password=True)
+        input_contrasena = ft.TextField(label="Contraseña", width=ancho_campo(), password=True, can_reveal_password=True)
         texto_error = ft.Text("", color=ft.Colors.RED)
         boton_ingresar = ft.ElevatedButton("Ingresar", on_click=iniciar_sesion, width=ancho_campo(), height=50)
 
@@ -1236,6 +1236,12 @@ def main(page: ft.Page):
     # ==========================================================
     def avanzar_comida():
         estado["indice_comida"] += 1
+        # Al cerrar una comida (o un snack), vaciamos el historial: "Atrás"
+        # ya no debería poder cruzar hacia una comida anterior ya cerrada
+        # (esas respuestas ya se guardaron). Dentro de la comida/snack que
+        # sigue, "Atrás" vuelve a funcionar con normalidad entre sus propias
+        # pantallas (hora -> items -> detalle -> tamaño).
+        historial.clear()
         if estado["indice_comida"] < len(COMIDAS_DEL_DIA):
             ir_a(mostrar_pregunta_hora)
         else:
@@ -1253,6 +1259,14 @@ def main(page: ft.Page):
             mostrar_pregunta_snack()
 
     def mostrar_pregunta_hora():
+        # Guarda de seguridad: esta pantalla es solo para las 4 comidas
+        # principales. Si por algún motivo se llega acá ya pasado ese
+        # rango (ej. algún camino de navegación inesperado), mandamos a
+        # la pantalla de snacks en vez de romper con un índice inválido.
+        if estado["indice_comida"] >= len(COMIDAS_DEL_DIA):
+            mostrar_pregunta_snack()
+            return
+
         estado["items_temporales"] = []
         comida_actual = COMIDAS_DEL_DIA[estado["indice_comida"]]
         inicio_pregunta = time.monotonic()
@@ -1329,8 +1343,8 @@ def main(page: ft.Page):
             titulo,
             input_hora,
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-            boton_no_tuve,
             boton_cerca_horario,
+            boton_no_tuve,
             overlays=[reloj],
         )
 
