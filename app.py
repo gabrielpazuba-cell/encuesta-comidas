@@ -944,6 +944,12 @@ def main(page: ft.Page):
 
         def comenzar_encuesta(e):
             aplicar_progreso_guardado()
+            # Arrancamos un historial nuevo para la encuesta: si no, al
+            # reanudar directo en medio de una comida o en la parte de
+            # snacks, "Atrás" quedaba con el menú principal debajo en la
+            # pila y te mandaba ahí de un salto en vez de quedarse dentro
+            # de la encuesta.
+            historial.clear()
             if debe_mostrar_instrucciones():
                 ir_a(mostrar_instrucciones)
             else:
@@ -1543,10 +1549,17 @@ def main(page: ft.Page):
     # comidas principales, acá la hora se pregunta una vez por cada snack).
     # ==========================================================
     def mostrar_pregunta_snack():
-        titulo = ft.Text(
-            "¿Tuviste algún snack o comida extra, fuera de esas 4 comidas?\nPodés cargar varios, cada uno con su propio horario.",
-            size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
+        # indice_comida sube en 1 cada vez que se cierra un snack, así que
+        # si ya pasamos del primero (índice > len(COMIDAS_DEL_DIA)) es
+        # porque ya cargó al menos un snack en esta encuesta.
+        ya_cargo_snack = estado["indice_comida"] > len(COMIDAS_DEL_DIA)
+
+        texto_pregunta = (
+            "¿Tuviste algún otro snack o comida extra?"
+            if ya_cargo_snack
+            else "¿Tuviste algún snack o comida extra, fuera de esas 4 comidas?\nPodés cargar varios, cada uno con su propio horario."
         )
+        titulo = ft.Text(texto_pregunta, size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
 
         boton_agregar = ft.ElevatedButton("Sí, agregar un snack", on_click=lambda _: ir_a(mostrar_hora_snack), width=ancho_campo())
         boton_terminar = ft.OutlinedButton("No, ya terminé", on_click=lambda _: ir_a(enviar_datos_y_mostrar_agradecimiento), width=ancho_campo())
