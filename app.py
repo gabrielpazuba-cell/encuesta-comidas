@@ -1000,6 +1000,20 @@ def main(page: ft.Page):
             token = object()
             estado["_dashboard_token"] = token
             iniciar_countdown(texto_countdown, token)
+        elif not estado["modo_local"]:
+            # Si ya había respuestas guardadas de hoy (se fue y volvió a
+            # entrar a mitad de la encuesta), el botón pasa a decir
+            # "Continuar encuesta" en vez de "Completar". Se chequea en
+            # segundo plano para no demorar el dibujado del menú.
+            def verificar_progreso():
+                if obtener_registros_de_hoy():
+                    boton_comenzar.text = "Continuar encuesta"
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+
+            threading.Thread(target=verificar_progreso, daemon=True).start()
 
     # ==========================================================
     # PANTALLA: MI PERFIL
