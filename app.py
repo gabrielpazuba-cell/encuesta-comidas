@@ -444,6 +444,8 @@ def main(page: ft.Page):
         "hora_ingresada": "",
         "_reanudar_items": False,   # si al reanudar hay que saltar directo a cargar items de esta comida
         "_ids_comida_hora": {},    # indice_comida -> id en Supabase (para poder corregir en vez de duplicar)
+        "_historial_ancla_items": None,  # marca en el historial a la que volver entre items de una misma comida
+        "_hora_snack_temp": None,  # hora elegida para el snack que se está por cargar (antes de confirmar)
 
         "items_temporales": [],
         "indice_item_actual": 0,
@@ -553,6 +555,18 @@ def main(page: ft.Page):
 
         page.update()
         _iniciar_latido()
+
+    def mostrar_error_guardado():
+        # Se usa cuando falla el guardado en Supabase (ej. corte de
+        # conexión momentáneo): avisamos y NO avanzamos de pantalla, para
+        # que la persona pueda tocar el botón de nuevo y reintentar sin
+        # perder la respuesta que ya cargó.
+        page.show_dialog(
+            ft.SnackBar(
+                ft.Text("No se pudo guardar. Revisá tu conexión y tocá el botón de nuevo."),
+                bgcolor=ft.Colors.RED_400,
+            )
+        )
 
     # Late "latido" (heartbeat): en algunos casos Render corta la conexión
     # en vivo con la app si pasa un ratito sin que viaje ningún dato entre
@@ -863,8 +877,11 @@ def main(page: ft.Page):
         # mitad de camino. Si ya se había mandado esta misma respuesta
         # antes (ej. volvió atrás y la cambió), la actualiza en vez de
         # crear una fila duplicada.
+        # Devuelve (exito, id): si exito es False, quien llama NO debe avanzar
+        # de pantalla (para no perder en silencio la respuesta si hubo un
+        # corte de conexión momentáneo).
         if estado["modo_local"]:
-            return None
+            return True, None
         try:
             if id_previo is not None:
                 resp = requests.patch(
@@ -875,7 +892,8 @@ def main(page: ft.Page):
                 )
                 if not resp.ok:
                     print(f"Error Supabase PATCH encuesta_comidas [{resp.status_code}]: {resp.text}")
-                return id_previo
+                    return False, id_previo
+                return True, id_previo
             resp = requests.post(
                 SUPABASE_URL,
                 headers={**HEADERS, "Prefer": "return=representation"},
@@ -884,12 +902,12 @@ def main(page: ft.Page):
             )
             if not resp.ok:
                 print(f"Error Supabase POST encuesta_comidas [{resp.status_code}]: {resp.text}")
-                return None
+                return False, None
             creados = resp.json()
-            return creados[0]["id"] if creados else None
+            return True, (creados[0]["id"] if creados else None)
         except Exception as e:
             print("Error de red (guardar respuesta):", repr(e))
-            return id_previo
+            return False, id_previo
 
     def tiempo_restante_texto():
         ahora = ahora_argentina()
@@ -1282,6 +1300,7 @@ def main(page: ft.Page):
     # ==========================================================
     def avanzar_comida():
         estado["indice_comida"] += 1
+        estado["hora_ingresada"] = ""
         # Al cerrar una comida (o un snack), vaciamos el historial: "Atrás"
         # ya no debería poder cruzar hacia una comida anterior ya cerrada
         # (esas respuestas ya se guardaron). Dentro de la comida/snack que
@@ -1323,11 +1342,15 @@ def main(page: ft.Page):
         # editable: basta con tocar el campo y elegir otra hora en el reloj.
         hora_sugerida = HORARIOS_SUGERIDOS.get(comida_actual)
         hora_sugerida_texto = hora_sugerida.strftime("%H:%M") if hora_sugerida else ""
-        estado["hora_ingresada"] = hora_sugerida_texto
+        # Si esta pantalla se vuelve a dibujar sin haber cambiado de comida
+        # (ej. al rotar el celular), no pisamos una hora que la persona ya
+        # había elegido con el reloj.
+        if not estado["hora_ingresada"]:
+            estado["hora_ingresada"] = hora_sugerida_texto
 
         input_hora = ft.TextField(
             label="Tocar para elegir hora",
-            value=hora_sugerida_texto,
+            value=estado["hora_ingresada"],
             read_only=True,
             width=ancho_campo(200),
             text_align=ft.TextAlign.CENTER,
@@ -1365,23 +1388,51 @@ def main(page: ft.Page):
                 "tiempo_respuesta_seg": round(time.monotonic() - inicio_pregunta, 1),
             }
             id_previo = estado["_ids_comida_hora"].get(estado["indice_comida"])
-            nuevo_id = enviar_o_actualizar_registro(registro, id_previo)
+            exito, nuevo_id = enviar_o_actualizar_registro(registro, id_previo)
             if nuevo_id is not None:
                 estado["_ids_comida_hora"][estado["indice_comida"]] = nuevo_id
+            return exito
+
+        # Mientras se está mandando la respuesta a Supabase, deshabilitamos
+        # los dos botones: si no, un doble toque (algo común en celulares o
+        # cuando la conexión tarda) podía disparar dos guardados y crear una
+        # fila duplicada para la misma comida.
+        enviando = {"valor": False}
+
+        def _bloquear_botones(bloqueado):
+            boton_no_tuve.disabled = bloqueado
+            boton_cerca_horario.disabled = bloqueado
+            page.update()
 
         def no_tuve_click(e):
-            registrar_respuesta_hora(False, None)
-            avanzar_comida()
+            if enviando["valor"]:
+                return
+            enviando["valor"] = True
+            _bloquear_botones(True)
+            if registrar_respuesta_hora(False, None):
+                avanzar_comida()
+            else:
+                enviando["valor"] = False
+                _bloquear_botones(False)
+                mostrar_error_guardado()
 
         boton_no_tuve = ft.OutlinedButton("No tuve", on_click=no_tuve_click, width=ancho_campo())
 
         def confirmar_hora(e):
-            if input_hora.value:
-                registrar_respuesta_hora(True, input_hora.value)
-                ir_a(mostrar_ingreso_items)
-            else:
+            if enviando["valor"]:
+                return
+            if not input_hora.value:
                 input_hora.error_text = "Elegí una hora"
                 page.update()
+                return
+            enviando["valor"] = True
+            _bloquear_botones(True)
+            if registrar_respuesta_hora(True, input_hora.value):
+                ir_a(mostrar_ingreso_items)
+            else:
+                enviando["valor"] = False
+                _bloquear_botones(False)
+                mostrar_error_guardado()
 
         boton_cerca_horario = ft.ElevatedButton("Cerca de ese horario", on_click=confirmar_hora, width=ancho_campo())
 
@@ -1442,6 +1493,12 @@ def main(page: ft.Page):
         def continuar(e):
             if len(estado["items_temporales"]) > 0:
                 estado["indice_item_actual"] = 0
+                # Marca el punto del historial al que hay que volver entre un
+                # item y el siguiente (ver guardar_tamano_y_avanzar): "Atrás"
+                # siempre tiene que volver a esta lista, nunca a la pantalla
+                # de tamaño/detalle de OTRO item (esas pantallas se reusan
+                # para todos los items y solo son válidas para el item actual).
+                estado["_historial_ancla_items"] = len(historial)
                 ir_a(mostrar_detalle_item)
             else:
                 avanzar_comida()
@@ -1527,7 +1584,14 @@ def main(page: ft.Page):
         AREA_DIBUJO = ancho_campo(280)
 
         imagen_src = imagen_para_item(item_actual["categoria"], comida_del_dia, item_actual["nombre"])
-        dibujo = ft.Image(src=imagen_src, width=180, height=180, fit=ft.BoxFit.CONTAIN)
+
+        # Si esta pantalla se vuelve a dibujar sin cambiar de item (ej. al
+        # rotar el celular), arrancamos desde el tamaño que la persona ya
+        # había elegido con el slider, no siempre desde "Mediano".
+        idx_inicial = item_actual.get("_tamano_idx", 2)
+        tamano_inicial, nombre_inicial = configuraciones[idx_inicial]
+
+        dibujo = ft.Image(src=imagen_src, width=tamano_inicial, height=tamano_inicial, fit=ft.BoxFit.CONTAIN)
 
         contenedor_dibujo = ft.Container(
             content=dibujo,
@@ -1536,19 +1600,31 @@ def main(page: ft.Page):
             alignment=ft.Alignment.CENTER,
         )
 
-        texto_label = ft.Text("Mediano", size=16, weight=ft.FontWeight.BOLD)
+        texto_label = ft.Text(nombre_inicial, size=16, weight=ft.FontWeight.BOLD)
 
         def slider_cambiado(e):
             idx = int(e.control.value)
+            item_actual["_tamano_idx"] = idx
             nuevo_tamano, nuevo_nombre = configuraciones[idx]
             dibujo.width = nuevo_tamano
             dibujo.height = nuevo_tamano
             texto_label.value = nuevo_nombre
             page.update()
 
-        slider = ft.Slider(min=0, max=4, divisions=4, value=2, on_change=slider_cambiado)
+        slider = ft.Slider(min=0, max=4, divisions=4, value=idx_inicial, on_change=slider_cambiado)
+
+        # Mientras se está mandando a Supabase, deshabilitamos el botón: un
+        # doble toque (o una conexión lenta) podía disparar dos guardados y
+        # crear una fila duplicada para el mismo item.
+        enviando = {"valor": False}
 
         def guardar_tamano_y_avanzar(e):
+            if enviando["valor"]:
+                return
+            enviando["valor"] = True
+            boton_continuar.disabled = True
+            page.update()
+
             # Se manda a Supabase apenas se confirma (no al final de la
             # encuesta), para poder reanudar si la persona cierra la app a
             # mitad de camino. Si ya se había mandado este mismo item antes
@@ -1567,12 +1643,26 @@ def main(page: ft.Page):
                 "tuvo_comida": True,
                 "tiempo_respuesta_seg": round(time.monotonic() - item_actual.get("_t_inicio", time.monotonic()), 1),
             }
-            nuevo_id = enviar_o_actualizar_registro(registro_final, item_actual.get("_supabase_id"))
+            exito, nuevo_id = enviar_o_actualizar_registro(registro_final, item_actual.get("_supabase_id"))
             if nuevo_id is not None:
                 item_actual["_supabase_id"] = nuevo_id
+            if not exito:
+                enviando["valor"] = False
+                boton_continuar.disabled = False
+                page.update()
+                mostrar_error_guardado()
+                return
 
             estado["indice_item_actual"] += 1
             if estado["indice_item_actual"] < len(estado["items_temporales"]):
+                # Volvemos el historial al punto marcado al entrar a este
+                # item (ver mostrar_ingreso_items): así "Atrás" desde el
+                # próximo item siempre lleva a la lista de items, nunca a
+                # las pantallas de detalle/tamaño de un item ya cerrado
+                # (esas pantallas se reusan y ya no representan ese item).
+                ancla = estado.get("_historial_ancla_items")
+                if ancla is not None:
+                    del historial[ancla:]
                 ir_a(mostrar_detalle_item)
             else:
                 avanzar_comida()
@@ -1589,6 +1679,11 @@ def main(page: ft.Page):
     # comidas principales, acá la hora se pregunta una vez por cada snack).
     # ==========================================================
     def mostrar_pregunta_snack():
+        # Cada vez que se pasa por acá es el punto de partida de un snack
+        # nuevo (o el final de la encuesta): si había una hora tildada a
+        # medias para un snack anterior que se abandonó, la descartamos.
+        estado["_hora_snack_temp"] = None
+
         # indice_comida sube en 1 cada vez que se cierra un snack, así que
         # si ya pasamos del primero (índice > len(COMIDAS_DEL_DIA)) es
         # porque ya cargó al menos un snack en esta encuesta.
@@ -1607,13 +1702,17 @@ def main(page: ft.Page):
         pantalla(titulo, ft.Divider(height=10, color=ft.Colors.TRANSPARENT), boton_agregar, boton_terminar)
 
     def mostrar_hora_snack():
-        hora_sugerida = ahora_argentina().time()
+        # Si esta pantalla se vuelve a dibujar sin haber confirmado el
+        # snack (ej. al rotar el celular), no pisamos una hora que la
+        # persona ya había elegido con el reloj.
+        hora_texto_inicial = estado.get("_hora_snack_temp") or ahora_argentina().strftime("%H:%M")
+        hora_sugerida = datetime.strptime(hora_texto_inicial, "%H:%M").time()
 
         titulo = ft.Text("¿A qué hora fue ese snack?", size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
 
         input_hora = ft.TextField(
             label="Tocar para elegir hora",
-            value=hora_sugerida.strftime("%H:%M"),
+            value=hora_texto_inicial,
             read_only=True,
             width=ancho_campo(200),
             text_align=ft.TextAlign.CENTER,
@@ -1621,6 +1720,7 @@ def main(page: ft.Page):
 
         def cambio_hora(e):
             input_hora.value = e.control.value.strftime("%H:%M")
+            estado["_hora_snack_temp"] = input_hora.value
             page.update()
 
         reloj = ft.TimePicker(value=hora_sugerida, confirm_text="Aceptar", cancel_text="Cancelar", on_change=cambio_hora)
@@ -1634,6 +1734,7 @@ def main(page: ft.Page):
         def continuar(e):
             if input_hora.value:
                 estado["hora_ingresada"] = input_hora.value
+                estado["_hora_snack_temp"] = None
                 estado["items_temporales"] = []
                 ir_a(mostrar_ingreso_items)
             else:
