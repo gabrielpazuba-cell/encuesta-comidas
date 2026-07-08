@@ -321,7 +321,7 @@ EMOJI_CATALOGO = {
     "sandwich de miga": "🥪", "tostadas": "🍞", "medialunas": "🥐",
     "facturas": "🥐", "alfajores": "🍪", "torta": "🍰",
     "cafe con leche": "☕", "te": "🍵", "mate": "🧉", "jugo de naranja": "🧃",
-    "chocolatada": "🥛", "gaseosa": "🥤", "agua": "💧", "vino": "🍷",
+    "chocolatada": "🥛", "gaseosa": "🥤", "agua": "🥛", "vino": "🍷",
     "soda": "🥤", "cerveza": "🍺",
 }
 
