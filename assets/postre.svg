@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- porcion de torta -->
+  <path d="M45 132 L80 62 L115 132 Z" fill="#8A5A3B" stroke="#6B4429" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M52 120 H108" stroke="#F7E7B0" stroke-width="7"/>
+  <circle cx="80" cy="70" r="5" fill="#D9573D"/>
+
+  <!-- alfajor -->
+  <circle cx="140" cy="128" r="24" fill="#6B4429" stroke="#4E3018" stroke-width="3"/>
+  <circle cx="140" cy="128" r="24" fill="none" stroke="#8A5A3B" stroke-width="4" stroke-dasharray="2 5"/>
+</svg>

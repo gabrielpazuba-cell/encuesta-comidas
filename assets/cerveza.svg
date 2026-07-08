@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="178" rx="45" ry="7" fill="#00000014"/>
+
+  <!-- jarra -->
+  <path d="M60 55 H130 L124 165 H66 Z" fill="#FFFFFF" fill-opacity="0.5" stroke="#B7B2A8" stroke-width="4"/>
+  <path d="M66 78 H124 L119 160 H71 Z" fill="#E8B93E"/>
+  <path d="M66 78 H124 L122 100 H68 Z" fill="#FFFFFF"/>
+
+  <!-- burbujas -->
+  <circle cx="85" cy="120" r="3" fill="#FFFFFF" opacity="0.7"/>
+  <circle cx="100" cy="135" r="3" fill="#FFFFFF" opacity="0.7"/>
+
+  <!-- asa -->
+  <path d="M130 85 Q158 85 158 112 Q158 139 130 137" fill="none" stroke="#B7B2A8" stroke-width="7" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- sandwich triangular en capas -->
+  <path d="M55 140 L100 62 L145 140 Z" fill="#EFD79A" stroke="#C8944C" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M62 128 H138" stroke="#D9573D" stroke-width="8"/>
+  <path d="M69 116 H131" stroke="#7FB55E" stroke-width="8"/>
+  <path d="M76 104 H124" stroke="#F7E7B0" stroke-width="8"/>
+</svg>

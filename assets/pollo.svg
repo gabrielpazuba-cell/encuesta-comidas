@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- muslo/pata de pollo -->
+  <path d="M90 65 Q125 65 128 100 Q130 118 112 128 L100 150 Q95 158 85 152 Q78 146 84 138 L96 122 Q78 112 78 90 Q78 68 90 65 Z"
+        fill="#D9A44E" stroke="#B9832F" stroke-width="3"/>
+  <ellipse cx="90" cy="150" rx="10" ry="6" fill="#F1F1EF" stroke="#B9832F" stroke-width="2"/>
+
+  <!-- doradito -->
+  <path d="M95 80 Q112 85 110 105" fill="none" stroke="#B9832F" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- guarnicion: papas -->
+  <circle cx="140" cy="140" r="8" fill="#E8B96A"/>
+  <circle cx="150" cy="128" r="7" fill="#E8B96A"/>
+</svg>

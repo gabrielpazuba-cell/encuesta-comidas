@@ -59,6 +59,16 @@ HORARIOS_SUGERIDOS = {
     "Cena": time_cls(21, 0),
 }
 
+
+def nombre_momento(indice_comida):
+    # Después de las 4 comidas principales, la app deja agregar "snacks"
+    # extra (podés cargar varios, cada uno con su propia hora). indice_comida
+    # sigue subiendo de a uno para cada snack que se agrega, así que
+    # cualquier índice más allá de las 4 comidas principales es un snack.
+    if indice_comida < len(COMIDAS_DEL_DIA):
+        return COMIDAS_DEL_DIA[indice_comida]
+    return "Snack"
+
 # ==========================================================
 # --- CATÁLOGO DE COMIDAS/BEBIDAS Y SUS OPCIONES DE DETALLE ---
 # ----------------------------------------------------------
@@ -269,6 +279,16 @@ def clave_canonica_para_item(nombre_item):
         if candidato in _SINONIMOS_NORMALIZADOS:
             return _SINONIMOS_NORMALIZADOS[candidato]
 
+    # 1.5) Coincidencia exacta de alguna palabra suelta dentro de la frase
+    # (ej. "pizza de muzzarella" o "agua mineral" contienen una palabra que
+    # sola sí es una clave o sinónimo conocido).
+    for palabra in normalizado.split():
+        palabra = _sin_plural(palabra)
+        if palabra in _CLAVES_NORMALIZADAS:
+            return _CLAVES_NORMALIZADAS[palabra]
+        if palabra in _SINONIMOS_NORMALIZADOS:
+            return _SINONIMOS_NORMALIZADOS[palabra]
+
     # 2) Coincidencia difusa (tolera errores de tipeo) contra claves y sinónimos
     universo = {**_CLAVES_NORMALIZADAS, **_SINONIMOS_NORMALIZADOS}
     for candidato in candidatos:
@@ -286,6 +306,52 @@ def opciones_para_item(nombre_item):
     return CATALOGO_DETALLE[clave]
 
 # ==========================================================
+# --- EMOJI PARA CADA ITEM DE LA LISTA ---
+# ----------------------------------------------------------
+# En la lista de "comidas y bebidas cargadas" mostramos un emoji a modo
+# ilustrativo. Como hay infinitas comidas posibles, no hay un emoji para
+# cada una: usamos el emoji del item del catálogo (arriba) si coincide, y
+# si no, buscamos entre algunas palabras sueltas comunes que no forman
+# parte del catálogo de 10 opciones (ensalada, fruta, huevo, etc.). Si no
+# encontramos nada, mostramos un emoji genérico según la categoría.
+# ==========================================================
+EMOJI_CATALOGO = {
+    "milanesa": "🍖", "asado": "🥩", "pasta": "🍝", "pollo al horno": "🍗",
+    "guiso": "🍲", "pizza": "🍕", "empanadas": "🥟", "tarta": "🥧",
+    "sandwich de miga": "🥪", "tostadas": "🍞", "medialunas": "🥐",
+    "facturas": "🥐", "alfajores": "🍪", "torta": "🍰",
+    "cafe con leche": "☕", "te": "🍵", "mate": "🧉", "jugo de naranja": "🧃",
+    "chocolatada": "🥛", "gaseosa": "🥤", "agua": "💧", "vino": "🍷",
+    "soda": "🥤", "cerveza": "🍺",
+}
+
+# Ojo con el orden: las frases de más de una palabra van primero, para que
+# "papas fritas" se detecte antes que la genérica "papa".
+EMOJI_PALABRAS_EXTRA = {
+    "papas fritas": "🍟",
+    "ensalada": "🥗",
+    "fruta": "🍎", "manzana": "🍎", "banana": "🍌", "naranja": "🍊",
+    "pera": "🍐", "uva": "🍇", "frutilla": "🍓",
+    "queso": "🧀", "huevo": "🥚", "sopa": "🍲", "pan": "🍞", "arroz": "🍚",
+    "papa": "🥔", "yogur": "🥣", "yogurt": "🥣", "helado": "🍨",
+}
+
+
+def emoji_para_item(nombre_item, categoria):
+    clave = clave_canonica_para_item(nombre_item)
+    if clave in EMOJI_CATALOGO:
+        return EMOJI_CATALOGO[clave]
+
+    normalizado = _normalizar_texto(nombre_item)
+    palabras = set(normalizado.split())
+    palabras |= {_sin_plural(p) for p in palabras}
+    for palabra, emoji in EMOJI_PALABRAS_EXTRA.items():
+        if palabra in palabras or (len(palabra) >= 4 and palabra in normalizado):
+            return emoji
+
+    return "🍽️" if categoria == "Comida" else "🥤"
+
+# ==========================================================
 # --- IMÁGENES ---
 # Poné acá los nombres de tus archivos PNG. Todos tienen que estar
 # dentro de una carpeta llamada "assets" (al lado de este archivo).
@@ -293,18 +359,44 @@ def opciones_para_item(nombre_item):
 # ==========================================================
 FONDO = None                # Ej: "fondo.png"  -> fondo de todas las pantallas
 
-# Ilustración genérica que se muestra en la pantalla de "tamaño de la
-# porción". Como hay demasiadas comidas distintas para tener un dibujo de
-# cada una, usamos 4 ilustraciones a modo orientativo según el tipo de
-# comida/bebida (ver bebidas_calientes() e imagen_para_item() más abajo).
-BEBIDAS_CALIENTES = {"cafe con leche", "te", "mate"}
+# Ilustración que se muestra en la pantalla de "tamaño de la porción". Cada
+# item del catálogo (arriba) tiene su propio dibujo; si la persona cargó
+# algo que no reconocemos, usamos una ilustración genérica según el tipo
+# (comida de desayuno/merienda, comida de almuerzo/cena, o bebida).
+IMAGEN_CATALOGO = {
+    "milanesa": "plato_comida.svg",
+    "asado": "asado.svg",
+    "pasta": "pasta.svg",
+    "pizza": "pizza.svg",
+    "empanadas": "empanada.svg",
+    "pollo al horno": "pollo.svg",
+    "guiso": "guiso.svg",
+    "tarta": "tarta.svg",
+    "sandwich de miga": "sandwich.svg",
+    "tostadas": "plato_desayuno.svg",
+    "medialunas": "plato_desayuno.svg",
+    "facturas": "plato_desayuno.svg",
+    "alfajores": "postre.svg",
+    "torta": "postre.svg",
+    "cafe con leche": "bebida_caliente.svg",
+    "te": "bebida_caliente.svg",
+    "mate": "mate.svg",
+    "jugo de naranja": "bebida_fria.svg",
+    "chocolatada": "bebida_fria.svg",
+    "gaseosa": "bebida_fria.svg",
+    "agua": "bebida_fria.svg",
+    "soda": "bebida_fria.svg",
+    "vino": "vino.svg",
+    "cerveza": "cerveza.svg",
+}
 
 
 def imagen_para_item(categoria, comida_del_dia, nombre_item):
+    clave = clave_canonica_para_item(nombre_item)
+    if clave in IMAGEN_CATALOGO:
+        return IMAGEN_CATALOGO[clave]
+
     if categoria == "Bebida":
-        clave = clave_canonica_para_item(nombre_item)
-        if clave in BEBIDAS_CALIENTES:
-            return "bebida_caliente.svg"
         return "bebida_fria.svg"
 
     if comida_del_dia in ("Desayuno", "Merienda"):
@@ -345,14 +437,15 @@ def main(page: ft.Page):
         "edad": None,
         "educacion": "",
         "ocupacion": "",
+        "vio_instrucciones": False,  # si ya vio la pantalla de instrucciones/video alguna vez
 
         "indice_comida": 0,
         "hora_ingresada": "",
+        "_reanudar_items": False,   # si al reanudar hay que saltar directo a cargar items de esta comida
+        "_ids_comida_hora": {},    # indice_comida -> id en Supabase (para poder corregir en vez de duplicar)
 
         "items_temporales": [],
         "indice_item_actual": 0,
-
-        "datos_finales": []
     }
 
     # ==========================================================
@@ -512,6 +605,7 @@ def main(page: ft.Page):
         estado["edad"] = usuario.get("edad")
         estado["educacion"] = usuario.get("educacion") or ""
         estado["ocupacion"] = usuario.get("ocupacion") or ""
+        estado["vio_instrucciones"] = bool(usuario.get("vio_instrucciones"))
         # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
         # principal no lleva de nuevo a la pantalla de login.
         historial.clear()
@@ -632,6 +726,145 @@ def main(page: ft.Page):
             return True
         return estado["ultima_fecha_completado"] != ahora_argentina().date().isoformat()
 
+    def debe_mostrar_instrucciones():
+        # Acceso piloto: siempre se muestra, para poder probar esa pantalla
+        # las veces que haga falta.
+        return estado["modo_local"] or not estado["vio_instrucciones"]
+
+    def marcar_instrucciones_vistas():
+        estado["vio_instrucciones"] = True
+        if not estado["modo_local"]:
+            try:
+                requests.patch(
+                    f"{SUPABASE_USUARIOS_URL}?id=eq.{estado['usuario_id']}",
+                    headers=HEADERS,
+                    json={"vio_instrucciones": True},
+                    timeout=10,
+                )
+            except Exception as e:
+                print("Error de red (marcar instrucciones vistas):", e)
+
+    # ----------------------------------------------------------
+    # Reanudar encuesta sin terminar: cada respuesta se manda a Supabase
+    # apenas se confirma (ver enviar_o_actualizar_registro), así que si la
+    # persona cierra la app a mitad de la encuesta, la próxima vez que
+    # entra retomamos desde la comida donde se quedó en vez de empezar el
+    # día de nuevo. Ojo: si ya había empezado a cargar items para una
+    # comida pero se fue antes de guardar el tamaño de al menos uno, esos
+    # items sueltos no quedan guardados y hay que volver a escribirlos
+    # (solo se recuerda la comida y la hora, no la lista de items a medias).
+    # Esto solo cubre las 4 comidas principales: si se fue a mitad de
+    # cargar un snack, al volver arranca la parte de snacks de nuevo (no
+    # hay problema, es opcional y se puede repetir las veces que haga falta).
+    # ----------------------------------------------------------
+    def obtener_registros_de_hoy():
+        inicio = datetime.combine(ahora_argentina().date(), datetime.min.time()).strftime("%Y-%m-%dT%H:%M:%S")
+        fin = datetime.combine(ahora_argentina().date() + timedelta(days=1), datetime.min.time()).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            resp = requests.get(
+                SUPABASE_URL,
+                headers=HEADERS,
+                params={"usuario": f"eq.{estado['email']}", "fecha": [f"gte.{inicio}", f"lt.{fin}"], "select": "*"},
+                timeout=10,
+            )
+            if not resp.ok:
+                print(f"Error Supabase GET progreso [{resp.status_code}]: {resp.text}")
+                return None
+            return resp.json()
+        except Exception as e:
+            print("Error de red (progreso):", repr(e))
+            return None
+
+    def aplicar_progreso_guardado():
+        estado["indice_comida"] = 0
+        estado["hora_ingresada"] = ""
+        estado["items_temporales"] = []
+        estado["indice_item_actual"] = 0
+        estado["_reanudar_items"] = False
+        estado["_ids_comida_hora"] = {}
+
+        if estado["modo_local"]:
+            # Acceso piloto: siempre arranca de cero, para poder probar el
+            # flujo completo las veces que haga falta.
+            return
+
+        registros = obtener_registros_de_hoy()
+        if registros is None:
+            return  # error de red: arrancamos de cero como si no hubiera progreso
+
+        for i, comida in enumerate(COMIDAS_DEL_DIA):
+            regs_comida = [r for r in registros if r.get("momento_dia") == comida]
+            hora_regs = [r for r in regs_comida if r.get("tipo_registro") == "comida_hora"]
+            if not hora_regs:
+                estado["indice_comida"] = i
+                return
+
+            hora_reg = hora_regs[0]
+            if hora_reg.get("tuvo_comida") is False:
+                continue  # esta comida ya quedó resuelta ("no tuve"), seguimos con la próxima
+
+            item_regs = [r for r in regs_comida if r.get("tipo_registro") == "item"]
+            if not item_regs:
+                # Dijo que sí tuvo esta comida pero no llegó a guardar
+                # ningún item: retomamos pidiendo los items directamente.
+                estado["indice_comida"] = i
+                estado["hora_ingresada"] = hora_reg.get("hora_consumo") or ""
+                estado["_reanudar_items"] = True
+                if hora_reg.get("id") is not None:
+                    estado["_ids_comida_hora"][i] = hora_reg["id"]
+                return
+            # esta comida ya tiene items guardados: la damos por resuelta y seguimos
+
+        # Las 4 comidas ya estaban respondidas (de esta sesión o de una
+        # anterior que se cortó): seguimos directo a la parte de snacks en
+        # vez de pedirle que responda todo el día de nuevo.
+        estado["indice_comida"] = len(COMIDAS_DEL_DIA)
+
+    def ir_a_pregunta_o_items():
+        if estado.get("_reanudar_items"):
+            estado["_reanudar_items"] = False
+            ir_a(mostrar_ingreso_items)
+        elif estado["indice_comida"] >= len(COMIDAS_DEL_DIA):
+            # Ya respondió las 4 comidas principales (en esta sesión o en
+            # una anterior que se cortó): seguimos con la parte de snacks.
+            ir_a(mostrar_pregunta_snack)
+        else:
+            ir_a(mostrar_pregunta_hora)
+
+    def enviar_o_actualizar_registro(registro, id_previo):
+        # Guarda cada respuesta apenas se confirma (no al final de la
+        # encuesta), para que se pueda reanudar si la persona se va a
+        # mitad de camino. Si ya se había mandado esta misma respuesta
+        # antes (ej. volvió atrás y la cambió), la actualiza en vez de
+        # crear una fila duplicada.
+        if estado["modo_local"]:
+            return None
+        try:
+            if id_previo is not None:
+                resp = requests.patch(
+                    f"{SUPABASE_URL}?id=eq.{id_previo}",
+                    headers=HEADERS,
+                    json=registro,
+                    timeout=10,
+                )
+                if not resp.ok:
+                    print(f"Error Supabase PATCH encuesta_comidas [{resp.status_code}]: {resp.text}")
+                return id_previo
+            resp = requests.post(
+                SUPABASE_URL,
+                headers={**HEADERS, "Prefer": "return=representation"},
+                json=registro,
+                timeout=10,
+            )
+            if not resp.ok:
+                print(f"Error Supabase POST encuesta_comidas [{resp.status_code}]: {resp.text}")
+                return None
+            creados = resp.json()
+            return creados[0]["id"] if creados else None
+        except Exception as e:
+            print("Error de red (guardar respuesta):", repr(e))
+            return id_previo
+
     def tiempo_restante_texto():
         ahora = ahora_argentina()
         medianoche = datetime.combine(ahora.date() + timedelta(days=1), datetime.min.time(), tzinfo=ZONA_ARGENTINA)
@@ -675,7 +908,6 @@ def main(page: ft.Page):
 
     def mostrar_dashboard():
         estado["indice_comida"] = 0
-        estado["datos_finales"] = []
 
         habilitado = esta_habilitado_hoy()
 
@@ -710,9 +942,16 @@ def main(page: ft.Page):
             width=ancho_campo()
         )
 
+        def comenzar_encuesta(e):
+            aplicar_progreso_guardado()
+            if debe_mostrar_instrucciones():
+                ir_a(mostrar_instrucciones)
+            else:
+                ir_a_pregunta_o_items()
+
         boton_comenzar = ft.ElevatedButton(
             "Completar encuesta de hoy" if habilitado else "Ya completaste el registro de hoy",
-            on_click=(lambda _: ir_a(mostrar_instrucciones)) if habilitado else None,
+            on_click=comenzar_encuesta if habilitado else None,
             disabled=not habilitado,
             width=ancho_campo(),
             height=50,
@@ -914,12 +1153,24 @@ def main(page: ft.Page):
         tarjetas = []
         for dia in sorted(por_dia.keys(), reverse=True):
             filas_dia = []
-            for comida in COMIDAS_DEL_DIA:
+            for comida in COMIDAS_DEL_DIA + ["Snack"]:
                 regs_comida = por_dia[dia].get(comida)
                 if not regs_comida:
                     continue
 
                 items = [r for r in regs_comida if r.get("tipo_registro") == "item"]
+
+                if comida == "Snack":
+                    # Cada snack tiene su propia hora (a diferencia de las
+                    # comidas principales), así que la mostramos por item.
+                    if items:
+                        detalle = ", ".join(
+                            f"{it.get('item_nombre')} a las {it.get('hora_consumo')} ({it.get('item_detalle')}, {it.get('item_tamano')})"
+                            for it in items
+                        )
+                        filas_dia.append(ft.Text(f"• Snacks: {detalle}"))
+                    continue
+
                 sin_comida = any(
                     r.get("tipo_registro") == "comida_hora" and r.get("tuvo_comida") is False
                     for r in regs_comida
@@ -972,7 +1223,11 @@ def main(page: ft.Page):
             width=ancho_campo(), height=170, bgcolor=ft.Colors.BLACK87, border_radius=10
         )
 
-        boton_comenzar = ft.ElevatedButton("Comenzar", on_click=lambda _: ir_a(mostrar_pregunta_hora), width=ancho_campo(), height=50)
+        def comenzar_click(e):
+            marcar_instrucciones_vistas()
+            ir_a_pregunta_o_items()
+
+        boton_comenzar = ft.ElevatedButton("Comenzar", on_click=comenzar_click, width=ancho_campo(), height=50)
 
         pantalla(texto_instrucciones, caja_video, ft.Divider(color=ft.Colors.TRANSPARENT), boton_comenzar)
 
@@ -984,7 +1239,18 @@ def main(page: ft.Page):
         if estado["indice_comida"] < len(COMIDAS_DEL_DIA):
             ir_a(mostrar_pregunta_hora)
         else:
-            ir_a(enviar_datos_y_mostrar_agradecimiento)
+            # Terminadas las 4 comidas principales, ofrecemos cargar
+            # snacks extra (uno o varios, cada uno con su propia hora).
+            ir_a(mostrar_pregunta_snack)
+
+    def volver_a_pregunta_inicial():
+        # Guarda de seguridad de las pantallas de detalle/tamaño: si por
+        # algún motivo no hay items cargados, volvemos a la pregunta
+        # correspondiente (de una comida principal, o de snacks).
+        if estado["indice_comida"] < len(COMIDAS_DEL_DIA):
+            mostrar_pregunta_hora()
+        else:
+            mostrar_pregunta_snack()
 
     def mostrar_pregunta_hora():
         estado["items_temporales"] = []
@@ -1022,8 +1288,9 @@ def main(page: ft.Page):
 
         # Registra la respuesta a "¿tuviste esta comida?" (incluido el "No tuve"),
         # con el tiempo que tardó en responder y la hora local de la respuesta.
+        # Se manda a Supabase apenas se confirma (no al final de la encuesta),
+        # para poder reanudar si la persona cierra la app a mitad de camino.
         def registrar_respuesta_hora(tuvo, hora_consumo):
-            clave = (estado["indice_comida"], "hora")
             registro = {
                 "usuario": estado["email"],
                 "fecha": ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1036,10 +1303,11 @@ def main(page: ft.Page):
                 "tipo_registro": "comida_hora",
                 "tuvo_comida": tuvo,
                 "tiempo_respuesta_seg": round(time.monotonic() - inicio_pregunta, 1),
-                "_clave": clave,
             }
-            estado["datos_finales"] = [r for r in estado["datos_finales"] if r.get("_clave") != clave]
-            estado["datos_finales"].append(registro)
+            id_previo = estado["_ids_comida_hora"].get(estado["indice_comida"])
+            nuevo_id = enviar_o_actualizar_registro(registro, id_previo)
+            if nuevo_id is not None:
+                estado["_ids_comida_hora"][estado["indice_comida"]] = nuevo_id
 
         def no_tuve_click(e):
             registrar_respuesta_hora(False, None)
@@ -1070,7 +1338,7 @@ def main(page: ft.Page):
     # PANTALLA 5: INGRESO DE COMIDAS Y BEBIDAS
     # ==========================================================
     def mostrar_ingreso_items():
-        comida_actual = COMIDAS_DEL_DIA[estado["indice_comida"]]
+        comida_actual = nombre_momento(estado["indice_comida"])
         hora = estado["hora_ingresada"]
 
         titulo = ft.Text(f"Decinos todo lo que tuviste para el {comida_actual.lower()} ({hora}).", size=18, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
@@ -1080,7 +1348,7 @@ def main(page: ft.Page):
         def actualizar_lista_ui():
             lista_ui.controls.clear()
             for i, item in enumerate(estado["items_temporales"]):
-                icono = "🍔" if item["categoria"] == "Comida" else "🥤"
+                icono = emoji_para_item(item["nombre"], item["categoria"])
                 lista_ui.controls.append(
                     ft.Row([
                         ft.Text(f"{icono} {item['nombre']}", expand=True),
@@ -1139,7 +1407,7 @@ def main(page: ft.Page):
         # Guarda de seguridad: si por algún motivo no hay items cargados,
         # volvemos a preguntar la hora de esta comida.
         if not estado["items_temporales"] or estado["indice_item_actual"] >= len(estado["items_temporales"]):
-            mostrar_pregunta_hora()
+            volver_a_pregunta_inicial()
             return
 
         item_actual = estado["items_temporales"][estado["indice_item_actual"]]
@@ -1175,11 +1443,11 @@ def main(page: ft.Page):
     def mostrar_tamano_item():
         # Guarda de seguridad
         if not estado["items_temporales"] or estado["indice_item_actual"] >= len(estado["items_temporales"]):
-            mostrar_pregunta_hora()
+            volver_a_pregunta_inicial()
             return
 
         item_actual = estado["items_temporales"][estado["indice_item_actual"]]
-        comida_del_dia = COMIDAS_DEL_DIA[estado["indice_comida"]]
+        comida_del_dia = nombre_momento(estado["indice_comida"])
 
         titulo = ft.Text(f"Tamaño de: {item_actual['nombre']}", size=20, weight=ft.FontWeight.BOLD)
 
@@ -1221,11 +1489,11 @@ def main(page: ft.Page):
         slider = ft.Slider(min=0, max=4, divisions=4, value=2, on_change=slider_cambiado)
 
         def guardar_tamano_y_avanzar(e):
-            # Clave única para este item (comida + número de item).
-            # Sirve para que, si volvés atrás y lo guardás de nuevo,
-            # se reemplace el dato en vez de duplicarse.
-            clave = (estado["indice_comida"], estado["indice_item_actual"])
-
+            # Se manda a Supabase apenas se confirma (no al final de la
+            # encuesta), para poder reanudar si la persona cierra la app a
+            # mitad de camino. Si ya se había mandado este mismo item antes
+            # (ej. volvió atrás y cambió el detalle), se actualiza en vez
+            # de crear una fila duplicada.
             registro_final = {
                 "usuario": estado["email"],
                 "fecha": ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1238,12 +1506,10 @@ def main(page: ft.Page):
                 "tipo_registro": "item",
                 "tuvo_comida": True,
                 "tiempo_respuesta_seg": round(time.monotonic() - item_actual.get("_t_inicio", time.monotonic()), 1),
-                "_clave": clave,   # campo interno, se borra antes de enviar a Supabase
             }
-
-            # Sacamos cualquier registro anterior con la misma clave y agregamos el nuevo
-            estado["datos_finales"] = [r for r in estado["datos_finales"] if r.get("_clave") != clave]
-            estado["datos_finales"].append(registro_final)
+            nuevo_id = enviar_o_actualizar_registro(registro_final, item_actual.get("_supabase_id"))
+            if nuevo_id is not None:
+                item_actual["_supabase_id"] = nuevo_id
 
             estado["indice_item_actual"] += 1
             if estado["indice_item_actual"] < len(estado["items_temporales"]):
@@ -1254,6 +1520,62 @@ def main(page: ft.Page):
         boton_continuar = ft.ElevatedButton("Guardar", on_click=guardar_tamano_y_avanzar, width=ancho_campo())
 
         pantalla(titulo, contenedor_dibujo, texto_label, slider, boton_continuar)
+
+    # ==========================================================
+    # PANTALLA 7.5: SNACKS EXTRA (FUERA DE LAS 4 COMIDAS PRINCIPALES)
+    # ----------------------------------------------------------
+    # Después de Desayuno/Almuerzo/Merienda/Cena, se puede cargar uno o
+    # varios snacks extra, cada uno con su propia hora (a diferencia de las
+    # comidas principales, acá la hora se pregunta una vez por cada snack).
+    # ==========================================================
+    def mostrar_pregunta_snack():
+        titulo = ft.Text(
+            "¿Tuviste algún snack o comida extra, fuera de esas 4 comidas?\nPodés cargar varios, cada uno con su propio horario.",
+            size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
+        )
+
+        boton_agregar = ft.ElevatedButton("Sí, agregar un snack", on_click=lambda _: ir_a(mostrar_hora_snack), width=ancho_campo())
+        boton_terminar = ft.OutlinedButton("No, ya terminé", on_click=lambda _: ir_a(enviar_datos_y_mostrar_agradecimiento), width=ancho_campo())
+
+        pantalla(titulo, ft.Divider(height=10, color=ft.Colors.TRANSPARENT), boton_agregar, boton_terminar)
+
+    def mostrar_hora_snack():
+        hora_sugerida = ahora_argentina().time()
+
+        titulo = ft.Text("¿A qué hora fue ese snack?", size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
+
+        input_hora = ft.TextField(
+            label="Tocar para elegir hora",
+            value=hora_sugerida.strftime("%H:%M"),
+            read_only=True,
+            width=ancho_campo(200),
+            text_align=ft.TextAlign.CENTER,
+        )
+
+        def cambio_hora(e):
+            input_hora.value = e.control.value.strftime("%H:%M")
+            page.update()
+
+        reloj = ft.TimePicker(value=hora_sugerida, confirm_text="Aceptar", cancel_text="Cancelar", on_change=cambio_hora)
+
+        def abrir_reloj(e):
+            reloj.open = True
+            page.update()
+
+        input_hora.on_click = abrir_reloj
+
+        def continuar(e):
+            if input_hora.value:
+                estado["hora_ingresada"] = input_hora.value
+                estado["items_temporales"] = []
+                ir_a(mostrar_ingreso_items)
+            else:
+                input_hora.error_text = "Elegí una hora"
+                page.update()
+
+        boton_continuar = ft.ElevatedButton("Continuar", on_click=continuar, width=ancho_campo())
+
+        pantalla(titulo, input_hora, ft.Divider(height=20, color=ft.Colors.TRANSPARENT), boton_continuar, overlays=[reloj])
 
     # ==========================================================
     # PANTALLA 8: ENVÍO A NUBE Y AGRADECIMIENTO
@@ -1280,47 +1602,26 @@ def main(page: ft.Page):
         estado["ultima_fecha_completado"] = hoy
 
     def enviar_datos_y_mostrar_agradecimiento():
-        pantalla(ft.ProgressRing(), ft.Text("Subiendo datos...", size=20, color=ft.Colors.BLUE), mostrar_volver=False)
-
-        exito = False
-        if estado["modo_local"]:
-            # Modo piloto local: no se manda nada a Supabase, se simula éxito.
-            exito = True
-        elif len(estado["datos_finales"]) > 0:
-            # Sacamos el campo interno "_clave" antes de mandar a Supabase
-            datos_a_enviar = [{k: v for k, v in r.items() if k != "_clave"} for r in estado["datos_finales"]]
-            try:
-                respuesta = requests.post(SUPABASE_URL, headers=HEADERS, json=datos_a_enviar)
-                if respuesta.status_code == 201:
-                    exito = True
-            except Exception as e:
-                print("Error de red:", e)
-        else:
-            exito = True
-
-        if exito:
-            marcar_usuario_completado_hoy()
+        # Cada respuesta ya se mandó a Supabase apenas se confirmó (ver
+        # enviar_o_actualizar_registro), así que acá solo falta marcar el
+        # día como completado.
+        marcar_usuario_completado_hoy()
 
         # Vaciamos el historial: al terminar, "volver" no debería revivir la encuesta
         historial.clear()
 
-        if exito:
-            pantalla(
-                ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=60),
-                ft.Text("¡Muchas gracias!", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Volviendo al menú de inicio...", size=14, color=ft.Colors.GREY_700),
-                mostrar_volver=False,
-            )
+        pantalla(
+            ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=60),
+            ft.Text("¡Muchas gracias!", size=24, weight=ft.FontWeight.BOLD),
+            ft.Text("Volviendo al menú de inicio...", size=14, color=ft.Colors.GREY_700),
+            mostrar_volver=False,
+        )
 
-            def volver_a_inicio_luego():
-                time.sleep(1.5)
-                ir_a(mostrar_dashboard)
+        def volver_a_inicio_luego():
+            time.sleep(1.5)
+            ir_a(mostrar_dashboard)
 
-            threading.Thread(target=volver_a_inicio_luego, daemon=True).start()
-        else:
-            mensaje_error = ft.Text("Hubo un error al guardar los datos. Revisá tu conexión.", color=ft.Colors.RED)
-            boton_volver_inicio = ft.ElevatedButton("Volver al Inicio", on_click=lambda _: ir_a(mostrar_dashboard))
-            pantalla(mensaje_error, boton_volver_inicio, mostrar_volver=False)
+        threading.Thread(target=volver_a_inicio_luego, daemon=True).start()
 
     # Arranque de la app
     ir_a(mostrar_login)

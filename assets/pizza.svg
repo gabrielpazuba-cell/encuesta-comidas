@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- pizza -->
+  <circle cx="100" cy="105" r="50" fill="#E8B96A" stroke="#C8944C" stroke-width="4"/>
+  <circle cx="100" cy="105" r="40" fill="#D9573D"/>
+  <circle cx="100" cy="105" r="34" fill="#F0D27A" opacity="0.85"/>
+
+  <!-- muzzarella derretida -->
+  <circle cx="85" cy="92" r="8" fill="#F7E7B0"/>
+  <circle cx="115" cy="100" r="7" fill="#F7E7B0"/>
+  <circle cx="95" cy="122" r="7" fill="#F7E7B0"/>
+  <circle cx="120" cy="122" r="6" fill="#F7E7B0"/>
+
+  <!-- rodajas de tomate/aceituna -->
+  <circle cx="100" cy="80" r="5" fill="#B3402D"/>
+  <circle cx="72" cy="112" r="5" fill="#3B3B3B"/>
+  <circle cx="128" cy="85" r="5" fill="#3B3B3B"/>
+</svg>

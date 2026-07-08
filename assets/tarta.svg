@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- porcion de tarta (triangulo con capas) -->
+  <path d="M70 140 L100 55 L145 140 Z" fill="#E4B36B" stroke="#C8944C" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M78 128 L100 72 L136 128 Z" fill="#7FB55E"/>
+  <path d="M84 128 L100 86 L128 128 Z" fill="#EFD79A"/>
+</svg>

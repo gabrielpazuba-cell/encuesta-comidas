@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- empanada 1 -->
+  <path d="M48 118 Q48 78 88 78 Q128 78 128 118 Q88 138 48 118 Z" fill="#E4B36B" stroke="#C8944C" stroke-width="3"/>
+  <!-- repulgue (borde trenzado) -->
+  <path d="M50 116 Q60 122 70 116 Q80 122 90 116 Q100 122 110 116 Q118 122 126 116"
+        fill="none" stroke="#C8944C" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- empanada 2, atras -->
+  <path d="M92 148 Q95 122 128 122 Q161 122 158 150 Q128 166 92 148 Z" fill="#EFC784" stroke="#C8944C" stroke-width="3"/>
+</svg>

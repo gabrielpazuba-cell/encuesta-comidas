@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <ellipse cx="100" cy="170" rx="70" ry="10" fill="#00000014"/>
+  <circle cx="100" cy="105" r="85" fill="#F1F1EF"/>
+  <circle cx="100" cy="105" r="85" fill="none" stroke="#D2D2CE" stroke-width="4"/>
+  <circle cx="100" cy="105" r="58" fill="none" stroke="#E1E1DD" stroke-width="3"/>
+
+  <!-- fideos (espiral) -->
+  <path d="M100 105 m-38 0 a38 38 0 1 1 76 0 a28 28 0 1 1 -56 0 a18 18 0 1 1 36 0 a9 9 0 1 1 -18 0"
+        fill="none" stroke="#EFCB77" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- salsa de tomate -->
+  <circle cx="80" cy="90" r="7" fill="#D9573D"/>
+  <circle cx="128" cy="118" r="6" fill="#D9573D"/>
+  <circle cx="112" cy="70" r="5" fill="#D9573D"/>
+
+  <!-- albahaca -->
+  <ellipse cx="95" cy="128" rx="7" ry="4" fill="#6BA24D" transform="rotate(30 95 128)"/>
+</svg>
