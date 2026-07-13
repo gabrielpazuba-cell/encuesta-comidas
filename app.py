@@ -5,6 +5,7 @@ import requests
 import unicodedata
 import difflib
 import os
+import hashlib
 from datetime import datetime, timedelta, timezone
 from datetime import time as time_cls
 from flet.auth.providers import GoogleOAuthProvider
@@ -404,6 +405,23 @@ def imagen_para_item(categoria, comida_del_dia, nombre_item):
     return "plato_comida.svg"
 
 
+# PBKDF2-HMAC-SHA256 con sal aleatoria por usuario y 600.000 iteraciones:
+# recomendación vigente de OWASP (Password Storage Cheat Sheet) para que
+# probar contraseñas por fuerza bruta sea lento incluso si la base de
+# datos se filtrara.
+PBKDF2_ITERACIONES = 600_000
+
+
+def generar_salt():
+    return os.urandom(16).hex()
+
+
+def hash_contrasena(contrasena, salt_hex):
+    salt = bytes.fromhex(salt_hex)
+    derivado = hashlib.pbkdf2_hmac("sha256", contrasena.encode("utf-8"), salt, PBKDF2_ITERACIONES)
+    return derivado.hex()
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
@@ -433,6 +451,9 @@ def main(page: ft.Page):
         "ultima_fecha_completado": None,  # "YYYY-MM-DD" o None
         "_dashboard_token": None,         # controla el hilo de la cuenta regresiva
         "_latido_token": None,            # controla el hilo del latido (mantener viva la conexión)
+
+        "tiene_password": True,    # False si entró solo con Google (no tiene contraseña propia)
+        "pregunta_seguridad": "",  # solo el texto de la pregunta (no la respuesta), para precargarla en "Mi perfil"
 
         "nombre": "",       # cómo se lo saluda ("Hola, {nombre}!"); si está vacío se usa el email
         "edad": None,
@@ -596,11 +617,16 @@ def main(page: ft.Page):
     # ==========================================================
     # PANTALLA 1: LOGIN / REGISTRO POR EMAIL
     # ----------------------------------------------------------
-    # Cada usuario se identifica con su mail. Si el mail no existe
-    # todavía en Supabase se crea un registro nuevo (alta automática);
-    # si ya existe, se recupera su histórico y su estado del día.
+    # Cada usuario se identifica con su mail + contraseña. Si el mail no
+    # existe todavía en Supabase se crea una cuenta nueva con esa
+    # contraseña (alta automática); si ya existe, hay que acertar la
+    # contraseña guardada (hasheada con sal, nunca en texto plano).
     # ==========================================================
-    def buscar_o_crear_usuario(email):
+    def mostrar_error(texto_control, mensaje):
+        texto_control.value = mensaje
+        page.update()
+
+    def buscar_usuario_por_email(email):
         try:
             resp = requests.get(
                 SUPABASE_USUARIOS_URL,
@@ -610,15 +636,19 @@ def main(page: ft.Page):
             )
             if not resp.ok:
                 print(f"Error Supabase GET usuarios [{resp.status_code}]: {resp.text}")
-                return None
+                return None, False
             resultados = resp.json()
-            if resultados:
-                return resultados[0]
+            return (resultados[0], True) if resultados else (None, True)
+        except Exception as e:
+            print("Error de red (usuarios):", repr(e))
+            return None, False
 
+    def crear_usuario(email, password_hash, password_salt=None):
+        try:
             resp = requests.post(
                 SUPABASE_USUARIOS_URL,
                 headers={**HEADERS, "Prefer": "return=representation"},
-                json={"email": email},
+                json={"email": email, "password_hash": password_hash, "password_salt": password_salt},
                 timeout=10,
             )
             if not resp.ok:
@@ -627,8 +657,31 @@ def main(page: ft.Page):
             creados = resp.json()
             return creados[0] if creados else None
         except Exception as e:
-            print("Error de red (usuarios):", repr(e))
+            print("Error de red (crear usuario):", repr(e))
             return None
+
+    def buscar_o_crear_usuario_google(email):
+        # Usado solo por el login con Google: no pide/valida contraseña.
+        usuario, ok = buscar_usuario_por_email(email)
+        if not ok:
+            return None
+        if usuario:
+            return usuario
+        return crear_usuario(email, None)
+
+    def actualizar_password_supabase(usuario_id, password_hash, password_salt):
+        try:
+            resp = requests.patch(
+                f"{SUPABASE_USUARIOS_URL}?id=eq.{usuario_id}",
+                headers=HEADERS,
+                json={"password_hash": password_hash, "password_salt": password_salt},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            print("Error de red (actualizar password):", e)
+            return False
 
     # Acceso rápido para la prueba piloto: se salta la validación de mail
     # y entra directo con un usuario fijo. Sacar esto cuando termine el piloto.
@@ -642,6 +695,8 @@ def main(page: ft.Page):
         estado["sesiones_historicas"] = usuario.get("sesiones_historicas") or 0
         estado["ultima_fecha_completado"] = usuario.get("ultima_fecha_completado")
         estado["modo_local"] = local
+        estado["tiene_password"] = usuario.get("password_hash") is not None
+        estado["pregunta_seguridad"] = usuario.get("pregunta_seguridad") or ""
         estado["nombre"] = usuario.get("nombre") or ""
         estado["edad"] = usuario.get("edad")
         estado["educacion"] = usuario.get("educacion") or ""
@@ -676,7 +731,7 @@ def main(page: ft.Page):
         email_google = (page.auth.user.get("email") or "").strip().lower()
         if not email_google:
             return
-        usuario = buscar_o_crear_usuario(email_google)
+        usuario = buscar_o_crear_usuario_google(email_google)
         if usuario:
             entrar_con_usuario(usuario, local=False)
 
@@ -713,21 +768,56 @@ def main(page: ft.Page):
                 input_email.error_text = "Ingresá un email válido"
                 page.update()
                 return
-
             input_email.error_text = None
+
+            if len(contrasena) < 6:
+                input_contrasena.error_text = "La contraseña tiene que tener al menos 6 caracteres"
+                page.update()
+                return
+            input_contrasena.error_text = None
+
             texto_error.value = ""
             boton_ingresar.disabled = True
             boton_ingresar.text = "Ingresando..."
             page.update()
 
-            usuario = buscar_o_crear_usuario(email)
+            usuario, ok = buscar_usuario_por_email(email)
+
+            if not ok:
+                boton_ingresar.disabled = False
+                boton_ingresar.text = "Ingresar"
+                mostrar_error(texto_error, "No pudimos conectar. Revisá tu conexión e intentá de nuevo.")
+                return
+
+            if usuario is None:
+                # Cuenta nueva: se registra con esta contraseña, con una
+                # sal aleatoria propia (no derivada del email).
+                salt_nueva = generar_salt()
+                hash_nuevo = hash_contrasena(contrasena, salt_nueva)
+                usuario = crear_usuario(email, hash_nuevo, salt_nueva)
+                boton_ingresar.disabled = False
+                boton_ingresar.text = "Ingresar"
+                if usuario is None:
+                    mostrar_error(texto_error, "No pudimos crear tu cuenta. Revisá tu conexión e intentá de nuevo.")
+                    return
+                entrar_con_usuario(usuario, local=False)
+                return
 
             boton_ingresar.disabled = False
             boton_ingresar.text = "Ingresar"
 
-            if usuario is None:
-                texto_error.value = "No pudimos conectar. Revisá tu conexión e intentá de nuevo."
-                page.update()
+            if usuario.get("password_hash") is None:
+                mostrar_error(texto_error, "Esta cuenta fue creada con Google. Iniciá sesión con el botón de Google.")
+                return
+
+            salt_guardada = usuario.get("password_salt")
+            if not salt_guardada:
+                mostrar_error(texto_error, "Hubo un problema con tu cuenta. Contactanos para ayudarte a recuperarla.")
+                return
+
+            hash_ingresado = hash_contrasena(contrasena, salt_guardada)
+            if usuario.get("password_hash") != hash_ingresado:
+                mostrar_error(texto_error, "Contraseña incorrecta.")
                 return
 
             entrar_con_usuario(usuario, local=False)
@@ -751,9 +841,156 @@ def main(page: ft.Page):
             )
             controles.append(ft.Text("— o —", color=ft.Colors.GREY_500))
 
-        controles.extend([input_email, input_contrasena, texto_error, boton_ingresar])
+        controles.extend([
+            input_email,
+            input_contrasena,
+            texto_error,
+            boton_ingresar,
+            ft.TextButton("¿Olvidaste tu contraseña?", on_click=lambda _: ir_a(mostrar_recuperar_paso1)),
+        ])
 
         pantalla(*controles)
+
+    # ==========================================================
+    # RECUPERAR CONTRASEÑA
+    # ----------------------------------------------------------
+    # Sin envío de mails (la app no tiene ese servicio configurado): se
+    # verifica identidad con una pregunta de seguridad que la persona
+    # eligió y respondió en "Mi perfil" (guardada con el mismo esquema de
+    # hash+sal que la contraseña, nunca en texto plano). Si la cuenta es
+    # de Google, o todavía no configuró una pregunta, se le avisa en vez
+    # de dejarla en un callejón sin salida.
+    # ==========================================================
+    def mostrar_recuperar_paso1():
+        input_email = ft.TextField(label="Tu email", width=ancho_campo(), keyboard_type=ft.KeyboardType.EMAIL)
+        texto_error = ft.Text("", color=ft.Colors.RED)
+        boton_continuar = ft.ElevatedButton("Continuar", width=ancho_campo(), height=50)
+
+        def continuar(e):
+            email = (input_email.value or "").strip().lower()
+            if "@" not in email or "." not in email.split("@")[-1]:
+                mostrar_error(texto_error, "Ingresá un email válido.")
+                return
+
+            boton_continuar.disabled = True
+            boton_continuar.text = "Buscando..."
+            page.update()
+
+            usuario, ok = buscar_usuario_por_email(email)
+
+            boton_continuar.disabled = False
+            boton_continuar.text = "Continuar"
+
+            if not ok:
+                mostrar_error(texto_error, "No pudimos conectar. Revisá tu conexión e intentá de nuevo.")
+                return
+            if usuario is None:
+                mostrar_error(texto_error, "No encontramos una cuenta con ese email.")
+                return
+            if usuario.get("password_hash") is None:
+                mostrar_error(texto_error, "Esta cuenta fue creada con Google. Iniciá sesión con el botón de Google.")
+                return
+            if not usuario.get("pregunta_seguridad") or not usuario.get("respuesta_seguridad_hash"):
+                mostrar_error(texto_error, "Esta cuenta todavía no tiene una pregunta de seguridad configurada. Contactanos para ayudarte a recuperarla.")
+                return
+
+            ir_a(lambda: mostrar_recuperar_paso2(usuario))
+
+        boton_continuar.on_click = continuar
+
+        pantalla(
+            ft.Icon(ft.Icons.LOCK_RESET, size=44, color=ft.Colors.BLUE_400),
+            ft.Text("Recuperar tu cuenta", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(
+                "Ingresá el email con el que te registraste.",
+                color=ft.Colors.GREY_700,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            input_email,
+            texto_error,
+            boton_continuar,
+            ft.TextButton("Volver a iniciar sesión", on_click=lambda _: ir_a(mostrar_login)),
+            mostrar_volver=False,
+        )
+
+    def mostrar_recuperar_paso2(usuario):
+        input_respuesta = ft.TextField(label="Tu respuesta", width=ancho_campo())
+        texto_error = ft.Text("", color=ft.Colors.RED)
+
+        def continuar(e):
+            respuesta = (input_respuesta.value or "").strip()
+            if not respuesta:
+                mostrar_error(texto_error, "Escribí tu respuesta para poder seguir.")
+                return
+            respuesta_normalizada = _normalizar_texto(respuesta)
+            hash_ingresado = hash_contrasena(respuesta_normalizada, usuario["respuesta_seguridad_salt"])
+            if hash_ingresado != usuario["respuesta_seguridad_hash"]:
+                mostrar_error(texto_error, "Esa no es la respuesta que tenemos guardada. Probá de nuevo.")
+                return
+            ir_a(lambda: mostrar_recuperar_paso3(usuario))
+
+        pantalla(
+            ft.Icon(ft.Icons.LOCK_RESET, size=44, color=ft.Colors.BLUE_400),
+            ft.Text("Tu pregunta de seguridad", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(usuario["pregunta_seguridad"], color=ft.Colors.GREY_700, text_align=ft.TextAlign.CENTER),
+            input_respuesta,
+            texto_error,
+            ft.ElevatedButton("Continuar", on_click=continuar, width=ancho_campo(), height=50),
+            ft.TextButton("Volver a iniciar sesión", on_click=lambda _: ir_a(mostrar_login)),
+            mostrar_volver=False,
+        )
+
+    def mostrar_recuperar_paso3(usuario):
+        input_nueva = ft.TextField(label="Nueva contraseña", width=ancho_campo(), password=True, can_reveal_password=True)
+        texto_error = ft.Text("", color=ft.Colors.RED)
+        boton_guardar = ft.ElevatedButton("Guardar nueva contraseña", width=ancho_campo(), height=50)
+
+        def guardar(e):
+            nueva = input_nueva.value or ""
+            if len(nueva) < 6:
+                mostrar_error(texto_error, "La contraseña tiene que tener al menos 6 caracteres.")
+                return
+
+            boton_guardar.disabled = True
+            boton_guardar.text = "Guardando..."
+            page.update()
+
+            salt_nueva = generar_salt()
+            hash_nuevo = hash_contrasena(nueva, salt_nueva)
+            ok = actualizar_password_supabase(usuario["id"], hash_nuevo, salt_nueva)
+
+            boton_guardar.disabled = False
+            boton_guardar.text = "Guardar nueva contraseña"
+
+            if not ok:
+                mostrar_error(texto_error, "No pudimos guardar la contraseña nueva. Revisá tu conexión e intentá de nuevo.")
+                return
+
+            ir_a(mostrar_recuperar_listo)
+
+        boton_guardar.on_click = guardar
+
+        pantalla(
+            ft.Icon(ft.Icons.LOCK_RESET, size=44, color=ft.Colors.BLUE_400),
+            ft.Text("Elegí tu nueva contraseña", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            input_nueva,
+            texto_error,
+            boton_guardar,
+            mostrar_volver=False,
+        )
+
+    def mostrar_recuperar_listo():
+        pantalla(
+            ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=44, color=ft.Colors.GREEN),
+            ft.Text("Listo, ya podés ingresar", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(
+                "Tu contraseña se actualizó. Iniciá sesión con la nueva.",
+                color=ft.Colors.GREY_700,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.ElevatedButton("Ir a iniciar sesión", on_click=lambda _: ir_a(mostrar_login), width=ancho_campo(), height=50),
+            mostrar_volver=False,
+        )
 
     # ==========================================================
     # PANTALLA 2: INICIO / DASHBOARD
@@ -945,6 +1182,8 @@ def main(page: ft.Page):
         estado["modo_local"] = False
         estado["sesiones_historicas"] = 0
         estado["ultima_fecha_completado"] = None
+        estado["tiene_password"] = True
+        estado["pregunta_seguridad"] = ""
         estado["nombre"] = ""
         estado["edad"] = None
         estado["educacion"] = ""
@@ -1084,15 +1323,37 @@ def main(page: ft.Page):
     EDAD_MINIMA = 18
     EDAD_MAXIMA = 22
 
-    def guardar_perfil_supabase(nombre, edad, educacion, ocupacion, ubicacion):
+    # Preguntas de seguridad para "¿Olvidaste tu contraseña?": la app no
+    # tiene un servicio de mails configurado, así que la recuperación se
+    # hace verificando esto en vez de mandar un link. La respuesta se
+    # guarda con el mismo esquema de hash+sal que la contraseña (nunca en
+    # texto plano), normalizada (sin acentos, en minúscula) para que no
+    # se trabe por mayúsculas o tildes al volver a escribirla.
+    PREGUNTAS_SEGURIDAD = [
+        "¿Cuál fue el nombre de tu primera mascota?",
+        "¿En qué ciudad naciste?",
+        "¿Cuál es tu comida favorita?",
+        "¿Cómo se llamaba tu mejor amigo/a de la infancia?",
+        "¿Cuál es tu película favorita?",
+    ]
+
+    def guardar_perfil_supabase(nombre, edad, educacion, ocupacion, ubicacion, pregunta_seguridad=None, respuesta_hash=None, respuesta_salt=None):
+        datos = {
+            "nombre": nombre, "edad": edad, "educacion": educacion,
+            "ocupacion": ocupacion, "ubicacion": ubicacion,
+        }
+        # Solo se tocan estos campos si la persona escribió una respuesta
+        # nueva: si los dejó vacíos porque ya tenía una configurada de
+        # antes, no hay que pisarla con nada.
+        if pregunta_seguridad is not None:
+            datos["pregunta_seguridad"] = pregunta_seguridad
+            datos["respuesta_seguridad_hash"] = respuesta_hash
+            datos["respuesta_seguridad_salt"] = respuesta_salt
         try:
             resp = requests.patch(
                 f"{SUPABASE_USUARIOS_URL}?id=eq.{estado['usuario_id']}",
                 headers=HEADERS,
-                json={
-                    "nombre": nombre, "edad": edad, "educacion": educacion,
-                    "ocupacion": ocupacion, "ubicacion": ubicacion,
-                },
+                json=datos,
                 timeout=10,
             )
             resp.raise_for_status()
@@ -1140,6 +1401,21 @@ def main(page: ft.Page):
             value=estado["ubicacion"] or None,
             width=ancho_campo(),
         )
+        dropdown_pregunta_seguridad = ft.Dropdown(
+            label="Pregunta de seguridad (para recuperar tu cuenta)",
+            options=[ft.dropdown.Option(op) for op in PREGUNTAS_SEGURIDAD],
+            value=estado.get("pregunta_seguridad") or None,
+            width=ancho_campo(),
+        )
+        input_respuesta_seguridad = ft.TextField(
+            label="Tu respuesta",
+            hint_text=(
+                "Dejalo vacío si no querés cambiarla"
+                if estado.get("pregunta_seguridad")
+                else "La vamos a usar solo si algún día te olvidás la contraseña"
+            ),
+            width=ancho_campo(),
+        )
         texto_error = ft.Text("", color=ft.Colors.RED, text_align=ft.TextAlign.CENTER)
 
         def guardar(e):
@@ -1176,14 +1452,33 @@ def main(page: ft.Page):
                 ir_a(mostrar_no_apto)
                 return
 
+            respuesta_valor = (input_respuesta_seguridad.value or "").strip()
+            pregunta_valor = None
+            hash_respuesta = None
+            salt_respuesta = None
+            if respuesta_valor and not dropdown_pregunta_seguridad.value:
+                texto_error.value = "Elegí una pregunta de seguridad antes de escribir la respuesta."
+                page.update()
+                return
+            if dropdown_pregunta_seguridad.value and not respuesta_valor:
+                texto_error.value = "Escribí una respuesta para la pregunta de seguridad que elegiste."
+                page.update()
+                return
+            if respuesta_valor and dropdown_pregunta_seguridad.value:
+                pregunta_valor = dropdown_pregunta_seguridad.value
+                salt_respuesta = generar_salt()
+                hash_respuesta = hash_contrasena(_normalizar_texto(respuesta_valor), salt_respuesta)
+
             estado["nombre"] = nombre_valor
             estado["edad"] = edad_valor
             estado["educacion"] = educacion_valor
             estado["ocupacion"] = ocupacion_valor
             estado["ubicacion"] = ubicacion_valor
+            if pregunta_valor is not None:
+                estado["pregunta_seguridad"] = pregunta_valor
 
             if not estado["modo_local"]:
-                if not guardar_perfil_supabase(nombre_valor, edad_valor, educacion_valor, ocupacion_valor, ubicacion_valor):
+                if not guardar_perfil_supabase(nombre_valor, edad_valor, educacion_valor, ocupacion_valor, ubicacion_valor, pregunta_valor, hash_respuesta, salt_respuesta):
                     texto_error.value = "No pudimos guardar los cambios. Revisá tu conexión e intentá de nuevo."
                     page.update()
                     return
@@ -1202,7 +1497,13 @@ def main(page: ft.Page):
                     color=ft.Colors.GREY_700,
                 )
             )
-        controles.extend([input_nombre, input_edad, dropdown_educacion, input_ocupacion, dropdown_ubicacion, texto_error, boton_guardar])
+        controles.extend([input_nombre, input_edad, dropdown_educacion, input_ocupacion, dropdown_ubicacion])
+        if estado.get("tiene_password", True):
+            # No tiene sentido pedir esto a alguien que entró con Google:
+            # nunca va a necesitar "¿Olvidaste tu contraseña?" porque no
+            # tiene una contraseña propia que recuperar.
+            controles.extend([dropdown_pregunta_seguridad, input_respuesta_seguridad])
+        controles.extend([texto_error, boton_guardar])
 
         pantalla(*controles, mostrar_volver=not es_primera_vez)
 
@@ -1543,6 +1844,14 @@ def main(page: ft.Page):
         input_bebida = ft.TextField(label="Escribí una bebida", on_submit=agregar_bebida, width=ancho_campo(220), expand=True)
 
         def continuar(e):
+            # Si quedó algo escrito en los campos pero la persona nunca
+            # tocó el "+" (o el Enter no disparó en su celular), lo
+            # agregamos igual acá: si no, "Continuar" avanzaba de comida
+            # sin guardar nada, dando la impresión de que se podía cargar
+            # una comida sin completar detalle ni porción.
+            agregar_comida(e)
+            agregar_bebida(e)
+
             if len(estado["items_temporales"]) > 0:
                 estado["indice_item_actual"] = 0
                 # Marca el punto del historial al que hay que volver entre un
