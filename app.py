@@ -438,6 +438,7 @@ def main(page: ft.Page):
         "edad": None,
         "educacion": "",
         "ocupacion": "",
+        "ubicacion": "",    # provincia donde vive
         "vio_instrucciones": False,  # si ya vio la pantalla de instrucciones/video alguna vez
 
         "indice_comida": 0,
@@ -645,6 +646,7 @@ def main(page: ft.Page):
         estado["edad"] = usuario.get("edad")
         estado["educacion"] = usuario.get("educacion") or ""
         estado["ocupacion"] = usuario.get("ocupacion") or ""
+        estado["ubicacion"] = usuario.get("ubicacion") or ""
         estado["vio_instrucciones"] = bool(usuario.get("vio_instrucciones"))
         # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
         # principal no lleva de nuevo a la pantalla de login.
@@ -701,6 +703,7 @@ def main(page: ft.Page):
                     "edad": estado.get("edad"),
                     "educacion": estado.get("educacion", ""),
                     "ocupacion": estado.get("ocupacion", ""),
+                    "ubicacion": estado.get("ubicacion", ""),
                 }
                 entrar_con_usuario(usuario_local, local=True)
                 return
@@ -946,6 +949,7 @@ def main(page: ft.Page):
         estado["edad"] = None
         estado["educacion"] = ""
         estado["ocupacion"] = ""
+        estado["ubicacion"] = ""
         page.logout()
         historial.clear()
         ir_a(mostrar_login)
@@ -1068,13 +1072,27 @@ def main(page: ft.Page):
     OPCIONES_EDUCACION = [
         "Primario", "Secundario", "Terciario", "Universitario", "Posgrado", "Otro",
     ]
+    OPCIONES_PROVINCIAS = [
+        "CABA (Ciudad Autónoma de Buenos Aires)", "Buenos Aires", "Catamarca", "Chaco",
+        "Chubut", "Córdoba", "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa",
+        "La Rioja", "Mendoza", "Misiones", "Neuquén", "Río Negro", "Salta", "San Juan",
+        "San Luis", "Santa Cruz", "Santa Fe", "Santiago del Estero", "Tierra del Fuego",
+        "Tucumán",
+    ]
+    # Rango de edad del público objetivo del estudio: fuera de este rango no
+    # se continúa con la encuesta (ver mostrar_no_apto más abajo).
+    EDAD_MINIMA = 18
+    EDAD_MAXIMA = 22
 
-    def guardar_perfil_supabase(nombre, edad, educacion, ocupacion):
+    def guardar_perfil_supabase(nombre, edad, educacion, ocupacion, ubicacion):
         try:
             resp = requests.patch(
                 f"{SUPABASE_USUARIOS_URL}?id=eq.{estado['usuario_id']}",
                 headers=HEADERS,
-                json={"nombre": nombre, "edad": edad, "educacion": educacion, "ocupacion": ocupacion},
+                json={
+                    "nombre": nombre, "edad": edad, "educacion": educacion,
+                    "ocupacion": ocupacion, "ubicacion": ubicacion,
+                },
                 timeout=10,
             )
             resp.raise_for_status()
@@ -1082,6 +1100,19 @@ def main(page: ft.Page):
         except Exception as e:
             print("Error de red (guardar perfil):", e)
             return False
+
+    def mostrar_no_apto():
+        # Pantalla de corte para quienes no están dentro del rango de edad
+        # del estudio: no se guarda ningún dato de perfil de esta persona.
+        pantalla(
+            ft.Icon(ft.Icons.INFO_OUTLINE, size=50, color=ft.Colors.BLUE_GREY),
+            ft.Text("¡Gracias por tu interés!", size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(
+                f"Este estudio está dirigido a personas de entre {EDAD_MINIMA} y {EDAD_MAXIMA} años, "
+                "así que en este momento no formás parte del público objetivo. ¡Gracias igual por sumarte a probarlo!",
+                text_align=ft.TextAlign.CENTER,
+            ),
+        )
 
     def mostrar_perfil():
         # Si todavía no cargó su nombre, es la primera vez que entra: hay
@@ -1094,6 +1125,7 @@ def main(page: ft.Page):
             value=str(estado["edad"]) if estado["edad"] is not None else "",
             width=ancho_campo(),
             keyboard_type=ft.KeyboardType.NUMBER,
+            input_filter=ft.NumbersOnlyInputFilter(),
         )
         dropdown_educacion = ft.Dropdown(
             label="Nivel educativo",
@@ -1102,36 +1134,56 @@ def main(page: ft.Page):
             width=ancho_campo(),
         )
         input_ocupacion = ft.TextField(label="Ocupación", value=estado["ocupacion"], width=ancho_campo())
-        texto_error = ft.Text("", color=ft.Colors.RED)
+        dropdown_ubicacion = ft.Dropdown(
+            label="¿Dónde vivís?",
+            options=[ft.dropdown.Option(op) for op in OPCIONES_PROVINCIAS],
+            value=estado["ubicacion"] or None,
+            width=ancho_campo(),
+        )
+        texto_error = ft.Text("", color=ft.Colors.RED, text_align=ft.TextAlign.CENTER)
 
         def guardar(e):
+            texto_error.value = ""
+            input_nombre.error_text = None
+            input_edad.error_text = None
+
             nombre_valor = (input_nombre.value or "").strip()
+            edad_texto = (input_edad.value or "").strip()
+
+            hay_error = False
             if not nombre_valor:
                 input_nombre.error_text = "Ingresá tu nombre"
+                hay_error = True
+            if not edad_texto or not edad_texto.isdigit():
+                input_edad.error_text = "Ingresá tu edad (solo números)"
+                hay_error = True
+
+            if hay_error:
+                texto_error.value = "Revisá los campos marcados en rojo arriba."
                 page.update()
                 return
-            input_nombre.error_text = None
 
-            edad_texto = (input_edad.value or "").strip()
-            edad_valor = None
-            if edad_texto:
-                if not edad_texto.isdigit():
-                    input_edad.error_text = "Ingresá un número"
-                    page.update()
-                    return
-                edad_valor = int(edad_texto)
-
-            input_edad.error_text = None
+            edad_valor = int(edad_texto)
             educacion_valor = dropdown_educacion.value or ""
             ocupacion_valor = (input_ocupacion.value or "").strip()
+            ubicacion_valor = dropdown_ubicacion.value or ""
+
+            # El filtro de edad solo aplica al completar el perfil por primera
+            # vez (no vuelve a echar a alguien que ya venía participando y
+            # entra a editar su perfil).
+            if es_primera_vez and not (EDAD_MINIMA <= edad_valor <= EDAD_MAXIMA):
+                historial.clear()
+                ir_a(mostrar_no_apto)
+                return
 
             estado["nombre"] = nombre_valor
             estado["edad"] = edad_valor
             estado["educacion"] = educacion_valor
             estado["ocupacion"] = ocupacion_valor
+            estado["ubicacion"] = ubicacion_valor
 
             if not estado["modo_local"]:
-                if not guardar_perfil_supabase(nombre_valor, edad_valor, educacion_valor, ocupacion_valor):
+                if not guardar_perfil_supabase(nombre_valor, edad_valor, educacion_valor, ocupacion_valor, ubicacion_valor):
                     texto_error.value = "No pudimos guardar los cambios. Revisá tu conexión e intentá de nuevo."
                     page.update()
                     return
@@ -1150,7 +1202,7 @@ def main(page: ft.Page):
                     color=ft.Colors.GREY_700,
                 )
             )
-        controles.extend([input_nombre, input_edad, dropdown_educacion, input_ocupacion, texto_error, boton_guardar])
+        controles.extend([input_nombre, input_edad, dropdown_educacion, input_ocupacion, dropdown_ubicacion, texto_error, boton_guardar])
 
         pantalla(*controles, mostrar_volver=not es_primera_vez)
 
