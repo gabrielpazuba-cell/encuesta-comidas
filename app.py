@@ -1,4 +1,5 @@
 import flet as ft
+import asyncio
 import time
 import threading
 import requests
@@ -813,33 +814,32 @@ def main(page: ft.Page):
     PILOTO_CONTRASENA = "taekwondo"
     PILOTO_EMAIL = "gaby.piloto@test.local"
 
-    def verificar_preguntas_previas_supabase(email):
+    def secciones_iniciales_hechas(email):
+        # Devuelve (hizo_preguntas_previas, hizo_encuesta_inicial) en una
+        # sola consulta. Si la red falla asumimos que ya están hechas: es
+        # preferible dejar entrar a la encuesta que hacer repetir una
+        # sección que la persona ya completó.
+        #
+        # OJO: esto bloquea. Llamarla siempre desde un handler async con
+        # asyncio.to_thread, nunca directo en un handler sincrónico.
         try:
             resp = requests.get(
                 SUPABASE_URL,
                 headers=HEADERS,
-                params={"usuario": f"eq.{email}", "tipo_registro": "eq.preguntas_previas", "limit": "1"},
-                timeout=10,
+                params={
+                    "usuario": f"eq.{email}",
+                    "tipo_registro": "in.(preguntas_previas,encuesta_inicial)",
+                    "select": "tipo_registro",
+                },
+                timeout=8,
             )
             if resp.ok:
-                return len(resp.json()) > 0
+                tipos = {r.get("tipo_registro") for r in resp.json()}
+                return ("preguntas_previas" in tipos, "encuesta_inicial" in tipos)
+            print(f"Error Supabase al verificar secciones iniciales [{resp.status_code}]: {resp.text}")
         except Exception as e:
-            print("Error al verificar preguntas previas:", repr(e))
-        return False
-
-    def verificar_encuesta_inicial_supabase(email):
-        try:
-            resp = requests.get(
-                SUPABASE_URL,
-                headers=HEADERS,
-                params={"usuario": f"eq.{email}", "tipo_registro": "eq.encuesta_inicial", "limit": "1"},
-                timeout=10,
-            )
-            if resp.ok:
-                return len(resp.json()) > 0
-        except Exception as e:
-            print("Error al verificar encuesta inicial:", repr(e))
-        return False
+            print("Error de red al verificar secciones iniciales:", repr(e))
+        return (True, True)
 
     def entrar_con_usuario(usuario, local=False):
         estado["email"] = usuario["email"]
@@ -858,17 +858,15 @@ def main(page: ft.Page):
         # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
         # principal no lleva de nuevo a la pantalla de login.
         historial.clear()
+        # Acá NO va ninguna llamada de red. Flet ejecuta los handlers
+        # sincrónicos (incluido el de login con Google) directamente sobre
+        # el event loop de asyncio, sin hilo de por medio: un requests.get
+        # bloqueante acá congela el loop, el WebSocket con el navegador deja
+        # de atenderse y la pantalla se queda en blanco después de elegir la
+        # cuenta de Google. Si hace falta consultar algo, va con handler
+        # async + asyncio.to_thread (ver comenzar_encuesta).
         if estado["nombre"]:
-            if local:
-                ir_a(mostrar_dashboard)
-            elif not verificar_preguntas_previas_supabase(estado["email"]):
-                ir_a(mostrar_preguntas_previas)
-            elif not verificar_encuesta_inicial_supabase(estado["email"]):
-                ir_a(mostrar_encuesta_inicial)
-            else:
-                estado["preguntas_previas_completas"] = True
-                estado["encuesta_inicial_completa"] = True
-                ir_a(mostrar_dashboard)
+            ir_a(mostrar_dashboard)
         else:
             # Primera vez que entra este usuario: tiene que completar su
             # perfil antes de poder usar la encuesta.
@@ -1605,7 +1603,37 @@ def main(page: ft.Page):
             width=ancho_campo()
         )
 
-        def comenzar_encuesta(e):
+        # async + asyncio.to_thread: las consultas a Supabase son bloqueantes
+        # y Flet corre los handlers sincrónicos sobre el event loop, así que
+        # hacerlas directo congelaría la app. Con await, el loop sigue libre
+        # y la pantalla responde mientras se consulta.
+        async def comenzar_encuesta(e):
+            boton_comenzar.disabled = True
+            boton_comenzar.text = "Cargando..."
+            page.update()
+
+            if estado["modo_local"]:
+                hizo_previas = hizo_inicial = True
+            else:
+                hizo_previas, hizo_inicial = await asyncio.to_thread(
+                    secciones_iniciales_hechas, estado["email"]
+                )
+
+            boton_comenzar.disabled = False
+            boton_comenzar.text = "Completar encuesta de hoy"
+
+            if not hizo_previas:
+                historial.clear()
+                ir_a(mostrar_preguntas_previas)
+                return
+            if not hizo_inicial:
+                historial.clear()
+                ir_a(mostrar_encuesta_inicial)
+                return
+
+            estado["preguntas_previas_completas"] = True
+            estado["encuesta_inicial_completa"] = True
+
             aplicar_progreso_guardado()
             # Arrancamos un historial nuevo para la encuesta: si no, al
             # reanudar directo en medio de una comida o en la parte de
