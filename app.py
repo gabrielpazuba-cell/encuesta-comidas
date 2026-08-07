@@ -841,7 +841,7 @@ def main(page: ft.Page):
             print("Error de red al verificar secciones iniciales:", repr(e))
         return (True, True)
 
-    def entrar_con_usuario(usuario, local=False):
+    async def entrar_con_usuario(usuario, local=False):
         estado["email"] = usuario["email"]
         estado["usuario_id"] = usuario["id"]
         estado["sesiones_historicas"] = usuario.get("sesiones_historicas") or 0
@@ -858,19 +858,37 @@ def main(page: ft.Page):
         # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
         # principal no lleva de nuevo a la pantalla de login.
         historial.clear()
-        # Acá NO va ninguna llamada de red. Flet ejecuta los handlers
-        # sincrónicos (incluido el de login con Google) directamente sobre
-        # el event loop de asyncio, sin hilo de por medio: un requests.get
-        # bloqueante acá congela el loop, el WebSocket con el navegador deja
-        # de atenderse y la pantalla se queda en blanco después de elegir la
-        # cuenta de Google. Si hace falta consultar algo, va con handler
-        # async + asyncio.to_thread (ver comenzar_encuesta).
-        if estado["nombre"]:
-            ir_a(mostrar_dashboard)
-        else:
+
+        if not estado["nombre"]:
             # Primera vez que entra este usuario: tiene que completar su
             # perfil antes de poder usar la encuesta.
             ir_a(mostrar_perfil)
+            return
+
+        if local:
+            ir_a(mostrar_dashboard)
+            return
+
+        # Las secciones de una sola vez se chequean acá, apenas entra, para
+        # que aparezcan inmediatamente después del login y no más adelante.
+        #
+        # OJO con el await: esta función es async a propósito. Flet ejecuta
+        # los handlers sincrónicos inline sobre el event loop de asyncio, así
+        # que un requests.get bloqueante acá lo congela, el WebSocket con el
+        # navegador deja de atenderse y la pantalla queda en blanco después
+        # de elegir la cuenta de Google. Con asyncio.to_thread la consulta
+        # corre fuera del loop y la app sigue respondiendo.
+        hizo_previas, hizo_inicial = await asyncio.to_thread(
+            secciones_iniciales_hechas, estado["email"]
+        )
+        if not hizo_previas:
+            ir_a(mostrar_preguntas_previas)
+        elif not hizo_inicial:
+            ir_a(mostrar_encuesta_inicial)
+        else:
+            estado["preguntas_previas_completas"] = True
+            estado["encuesta_inicial_completa"] = True
+            ir_a(mostrar_dashboard)
 
     # Login con Google: se configura solo si están las 3 variables de
     # entorno (ver arriba). El resultado llega de forma asíncrona al
@@ -883,16 +901,18 @@ def main(page: ft.Page):
             redirect_url=GOOGLE_REDIRECT_URL,
         )
 
-    def _al_iniciar_sesion_google(e):
+    async def _al_iniciar_sesion_google(e):
         if e.error:
             print("Error de login con Google:", e.error, e.error_description)
             return
         email_google = (page.auth.user.get("email") or "").strip().lower()
         if not email_google:
             return
-        usuario = buscar_o_crear_usuario_google(email_google)
+        # to_thread: buscar_o_crear_usuario_google hace requests bloqueantes y
+        # esto corre sobre el event loop (ver entrar_con_usuario).
+        usuario = await asyncio.to_thread(buscar_o_crear_usuario_google, email_google)
         if usuario:
-            entrar_con_usuario(usuario, local=False)
+            await entrar_con_usuario(usuario, local=False)
 
     page.on_login = _al_iniciar_sesion_google
 
@@ -900,7 +920,7 @@ def main(page: ft.Page):
         async def iniciar_con_google(e):
             await page.login(google_provider)
 
-        def iniciar_sesion(e):
+        async def iniciar_sesion(e):
             valor = (input_email.value or "").strip()
             contrasena = input_contrasena.value or ""
 
@@ -919,7 +939,7 @@ def main(page: ft.Page):
                     "ocupacion": estado.get("ocupacion", ""),
                     "ubicacion": estado.get("ubicacion", ""),
                 }
-                entrar_con_usuario(usuario_local, local=True)
+                await entrar_con_usuario(usuario_local, local=True)
                 return
 
             email = valor.lower()
@@ -940,7 +960,7 @@ def main(page: ft.Page):
             boton_ingresar.text = "Ingresando..."
             page.update()
 
-            usuario, ok = buscar_usuario_por_email(email)
+            usuario, ok = await asyncio.to_thread(buscar_usuario_por_email, email)
 
             if not ok:
                 boton_ingresar.disabled = False
@@ -953,13 +973,13 @@ def main(page: ft.Page):
                 # sal aleatoria propia (no derivada del email).
                 salt_nueva = generar_salt()
                 hash_nuevo = hash_contrasena(contrasena, salt_nueva)
-                usuario = crear_usuario(email, hash_nuevo, salt_nueva)
+                usuario = await asyncio.to_thread(crear_usuario, email, hash_nuevo, salt_nueva)
                 boton_ingresar.disabled = False
                 boton_ingresar.text = "Ingresar"
                 if usuario is None:
                     mostrar_error(texto_error, "No pudimos crear tu cuenta. Revisá tu conexión e intentá de nuevo.")
                     return
-                entrar_con_usuario(usuario, local=False)
+                await entrar_con_usuario(usuario, local=False)
                 return
 
             boton_ingresar.disabled = False
@@ -979,7 +999,7 @@ def main(page: ft.Page):
                 mostrar_error(texto_error, "Contraseña incorrecta.")
                 return
 
-            entrar_con_usuario(usuario, local=False)
+            await entrar_con_usuario(usuario, local=False)
 
         input_email = ft.TextField(label="Email", width=ancho_campo(), keyboard_type=ft.KeyboardType.EMAIL)
         input_contrasena = ft.TextField(label="Contraseña", width=ancho_campo(), password=True, can_reveal_password=True)
@@ -1603,37 +1623,7 @@ def main(page: ft.Page):
             width=ancho_campo()
         )
 
-        # async + asyncio.to_thread: las consultas a Supabase son bloqueantes
-        # y Flet corre los handlers sincrónicos sobre el event loop, así que
-        # hacerlas directo congelaría la app. Con await, el loop sigue libre
-        # y la pantalla responde mientras se consulta.
-        async def comenzar_encuesta(e):
-            boton_comenzar.disabled = True
-            boton_comenzar.text = "Cargando..."
-            page.update()
-
-            if estado["modo_local"]:
-                hizo_previas = hizo_inicial = True
-            else:
-                hizo_previas, hizo_inicial = await asyncio.to_thread(
-                    secciones_iniciales_hechas, estado["email"]
-                )
-
-            boton_comenzar.disabled = False
-            boton_comenzar.text = "Completar encuesta de hoy"
-
-            if not hizo_previas:
-                historial.clear()
-                ir_a(mostrar_preguntas_previas)
-                return
-            if not hizo_inicial:
-                historial.clear()
-                ir_a(mostrar_encuesta_inicial)
-                return
-
-            estado["preguntas_previas_completas"] = True
-            estado["encuesta_inicial_completa"] = True
-
+        def comenzar_encuesta(e):
             aplicar_progreso_guardado()
             # Arrancamos un historial nuevo para la encuesta: si no, al
             # reanudar directo en medio de una comida o en la parte de
