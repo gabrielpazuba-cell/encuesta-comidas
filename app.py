@@ -858,21 +858,40 @@ def main(page: ft.Page):
         # Al entrar arrancamos un historial nuevo: así "Atrás" desde el menú
         # principal no lleva de nuevo a la pantalla de login.
         historial.clear()
-        if estado["nombre"]:
-            if local:
-                ir_a(mostrar_dashboard)
-            elif not verificar_preguntas_previas_supabase(estado["email"]):
+        if not estado["nombre"]:
+            # Primera vez que entra este usuario: tiene que completar su
+            # perfil antes de poder usar la encuesta.
+            ir_a(mostrar_perfil)
+            return
+
+        if local:
+            ir_a(mostrar_dashboard)
+            return
+
+        # Averiguar si ya hizo las secciones de una sola vez requiere dos
+        # consultas a Supabase. NO se pueden hacer acá mismo: esta función
+        # corre dentro del callback del login con Google (page.on_login), y
+        # bloquearlo deja la pantalla congelada sin dibujar nada hasta que
+        # respondan (o venzan los timeouts). Por eso mostramos una pantalla
+        # de carga y consultamos en un hilo aparte.
+        pantalla(
+            ft.ProgressRing(width=48, height=48),
+            ft.Text("Entrando...", size=15, color=ft.Colors.GREY_700),
+            mostrar_volver=False,
+        )
+
+        def _rutear():
+            email = estado["email"]
+            if not verificar_preguntas_previas_supabase(email):
                 ir_a(mostrar_preguntas_previas)
-            elif not verificar_encuesta_inicial_supabase(estado["email"]):
+            elif not verificar_encuesta_inicial_supabase(email):
                 ir_a(mostrar_encuesta_inicial)
             else:
                 estado["preguntas_previas_completas"] = True
                 estado["encuesta_inicial_completa"] = True
                 ir_a(mostrar_dashboard)
-        else:
-            # Primera vez que entra este usuario: tiene que completar su
-            # perfil antes de poder usar la encuesta.
-            ir_a(mostrar_perfil)
+
+        threading.Thread(target=_rutear, daemon=True).start()
 
     # Login con Google: se configura solo si están las 3 variables de
     # entorno (ver arriba). El resultado llega de forma asíncrona al
