@@ -1,6 +1,5 @@
 import flet as ft
 import time
-import threading
 import requests
 import unicodedata
 import difflib
@@ -736,7 +735,11 @@ def main(page: ft.Page):
                 except Exception:
                     return
 
-        threading.Thread(target=loop, daemon=True).start()
+        # page.run_thread (y no threading.Thread a secas): Flet guarda la
+        # sesión actual en un contextvar, y un hilo crudo arranca sin ese
+        # contexto, así que los page.update() de adentro no llegan a
+        # ninguna pantalla y la app se queda colgada.
+        page.run_thread(loop)
 
     # ==========================================================
     # PANTALLA 1: LOGIN / REGISTRO POR EMAIL
@@ -891,7 +894,7 @@ def main(page: ft.Page):
                 estado["encuesta_inicial_completa"] = True
                 ir_a(mostrar_dashboard)
 
-        threading.Thread(target=_rutear, daemon=True).start()
+        page.run_thread(_rutear)
 
     # Login con Google: se configura solo si están las 3 variables de
     # entorno (ver arriba). El resultado llega de forma asíncrona al
@@ -1323,7 +1326,7 @@ def main(page: ft.Page):
                     ir_a(mostrar_dashboard)
                     return
 
-        threading.Thread(target=loop, daemon=True).start()
+        page.run_thread(loop)
 
     def cerrar_sesion(e):
         estado["email"] = ""
@@ -2139,7 +2142,6 @@ def main(page: ft.Page):
 
         estado["items_temporales"] = []
         comida_actual = COMIDAS_DEL_DIA[estado["indice_comida"]]
-        inicio_pregunta = time.monotonic()
         verbo = VERBO_PASADO.get(comida_actual, f"tuviste {comida_actual.lower()}")
 
         titulo = ft.Text(
@@ -2614,7 +2616,7 @@ def main(page: ft.Page):
             time.sleep(1.5)
             ir_a(mostrar_dashboard)
 
-        threading.Thread(target=_enviar, daemon=True).start()
+        page.run_thread(_enviar)
 
     # Arranque de la app
     ir_a(mostrar_login)
