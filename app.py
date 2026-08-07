@@ -1,5 +1,5 @@
 import flet as ft
-import time
+import asyncio
 import requests
 import unicodedata
 import difflib
@@ -720,14 +720,22 @@ def main(page: ft.Page):
     # cero. Para evitarlo, mientras se está mostrando cualquier pantalla
     # mandamos una actualización liviana cada 20 segundos, así la conexión
     # nunca queda del todo quieta. Cada pantalla nueva cancela el latido
-    # de la anterior (por eso el token), para no ir acumulando hilos.
+    # de la anterior (por eso el token), para no ir acumulando latidos.
+    #
+    # Va como corrutina (run_task + asyncio.sleep), NO como hilo: esto
+    # arranca en cada pantalla que se dibuja, y un bucle con time.sleep en
+    # un hilo se queda ocupando un lugar del ThreadPoolExecutor de Flet.
+    # Ese pool tiene apenas unos pocos lugares (min(32, cpu+4): en el plan
+    # Free de Render son 5), así que a las pocas pantallas quedaba lleno de
+    # latidos dormidos y cualquier otra tarea en segundo plano no llegaba a
+    # ejecutarse nunca. Una corrutina esperando no ocupa ningún hilo.
     def _iniciar_latido():
         token = object()
         estado["_latido_token"] = token
 
-        def loop():
+        async def loop():
             while estado.get("_latido_token") is token:
-                time.sleep(20)
+                await asyncio.sleep(20)
                 if estado.get("_latido_token") is not token:
                     return
                 try:
@@ -735,11 +743,7 @@ def main(page: ft.Page):
                 except Exception:
                     return
 
-        # page.run_thread (y no threading.Thread a secas): Flet guarda la
-        # sesión actual en un contextvar, y un hilo crudo arranca sin ese
-        # contexto, así que los page.update() de adentro no llegan a
-        # ninguna pantalla y la app se queda colgada.
-        page.run_thread(loop)
+        page.run_task(loop)
 
     # ==========================================================
     # PANTALLA 1: LOGIN / REGISTRO POR EMAIL
@@ -816,33 +820,32 @@ def main(page: ft.Page):
     PILOTO_CONTRASENA = "taekwondo"
     PILOTO_EMAIL = "gaby.piloto@test.local"
 
-    def verificar_preguntas_previas_supabase(email):
+    def secciones_iniciales_hechas(email):
+        # Devuelve (hizo_preguntas_previas, hizo_encuesta_inicial).
+        #
+        # Una sola consulta para las dos cosas, con timeout corto: esto
+        # corre en el camino del login (incluido el callback de Google),
+        # así que no puede tardar ni colgarse. Si falla la red, asumimos
+        # que ya están hechas: es preferible dejar entrar al menú que
+        # trabar a la persona o hacerle repetir una sección que ya hizo.
         try:
             resp = requests.get(
                 SUPABASE_URL,
                 headers=HEADERS,
-                params={"usuario": f"eq.{email}", "tipo_registro": "eq.preguntas_previas", "limit": "1"},
-                timeout=10,
+                params={
+                    "usuario": f"eq.{email}",
+                    "tipo_registro": "in.(preguntas_previas,encuesta_inicial)",
+                    "select": "tipo_registro",
+                },
+                timeout=6,
             )
             if resp.ok:
-                return len(resp.json()) > 0
+                tipos = {r.get("tipo_registro") for r in resp.json()}
+                return ("preguntas_previas" in tipos, "encuesta_inicial" in tipos)
+            print(f"Error Supabase al verificar secciones iniciales [{resp.status_code}]: {resp.text}")
         except Exception as e:
-            print("Error al verificar preguntas previas:", repr(e))
-        return False
-
-    def verificar_encuesta_inicial_supabase(email):
-        try:
-            resp = requests.get(
-                SUPABASE_URL,
-                headers=HEADERS,
-                params={"usuario": f"eq.{email}", "tipo_registro": "eq.encuesta_inicial", "limit": "1"},
-                timeout=10,
-            )
-            if resp.ok:
-                return len(resp.json()) > 0
-        except Exception as e:
-            print("Error al verificar encuesta inicial:", repr(e))
-        return False
+            print("Error de red al verificar secciones iniciales:", repr(e))
+        return (True, True)
 
     def entrar_con_usuario(usuario, local=False):
         estado["email"] = usuario["email"]
@@ -871,30 +874,19 @@ def main(page: ft.Page):
             ir_a(mostrar_dashboard)
             return
 
-        # Averiguar si ya hizo las secciones de una sola vez requiere dos
-        # consultas a Supabase. NO se pueden hacer acá mismo: esta función
-        # corre dentro del callback del login con Google (page.on_login), y
-        # bloquearlo deja la pantalla congelada sin dibujar nada hasta que
-        # respondan (o venzan los timeouts). Por eso mostramos una pantalla
-        # de carga y consultamos en un hilo aparte.
-        pantalla(
-            ft.ProgressRing(width=48, height=48),
-            ft.Text("Entrando...", size=15, color=ft.Colors.GREY_700),
-            mostrar_volver=False,
-        )
-
-        def _rutear():
-            email = estado["email"]
-            if not verificar_preguntas_previas_supabase(email):
-                ir_a(mostrar_preguntas_previas)
-            elif not verificar_encuesta_inicial_supabase(email):
-                ir_a(mostrar_encuesta_inicial)
-            else:
-                estado["preguntas_previas_completas"] = True
-                estado["encuesta_inicial_completa"] = True
-                ir_a(mostrar_dashboard)
-
-        page.run_thread(_rutear)
+        # Ruteo directo, sin hilos ni pantallas de espera: una consulta
+        # acotada a 6 segundos que además nunca lanza excepción. Cualquier
+        # camino termina en alguna pantalla, así que no hay forma de que
+        # esto quede colgado.
+        hizo_previas, hizo_inicial = secciones_iniciales_hechas(estado["email"])
+        if not hizo_previas:
+            ir_a(mostrar_preguntas_previas)
+        elif not hizo_inicial:
+            ir_a(mostrar_encuesta_inicial)
+        else:
+            estado["preguntas_previas_completas"] = True
+            estado["encuesta_inicial_completa"] = True
+            ir_a(mostrar_dashboard)
 
     # Login con Google: se configura solo si están las 3 variables de
     # entorno (ver arriba). El resultado llega de forma asíncrona al
@@ -1310,9 +1302,12 @@ def main(page: ft.Page):
         return f"{horas:02d}:{minutos:02d}:{segundos:02d}"
 
     def iniciar_countdown(texto_control, token):
-        def loop():
+        # Corrutina y no hilo, por el mismo motivo que el latido (ver
+        # _iniciar_latido): un bucle que duerme dentro de un hilo del
+        # executor de Flet le saca un lugar a las demás tareas.
+        async def loop():
             while estado.get("_dashboard_token") is token:
-                time.sleep(1)
+                await asyncio.sleep(1)
                 if estado.get("_dashboard_token") is not token:
                     return
                 if not esta_habilitado_hoy():
@@ -1326,7 +1321,7 @@ def main(page: ft.Page):
                     ir_a(mostrar_dashboard)
                     return
 
-        page.run_thread(loop)
+        page.run_task(loop)
 
     def cerrar_sesion(e):
         estado["email"] = ""
@@ -2528,95 +2523,98 @@ def main(page: ft.Page):
         estado["sesiones_historicas"] = nuevo_historico
         estado["ultima_fecha_completado"] = hoy
 
-    def enviar_datos_y_mostrar_agradecimiento():
-        texto_estado = ft.Text("Guardando tus respuestas...", size=15, color=ft.Colors.GREY_700)
+    def armar_registros_encuesta():
+        ahora_str = ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S")
+        registros = []
+
+        def fila(momento, hora, item=None, tuvo=True, tipo="item"):
+            return {
+                "usuario": estado["email"],
+                "fecha": ahora_str,
+                "momento_dia": momento,
+                "hora_consumo": hora or None,
+                "item_nombre": item["nombre"] if item else None,
+                "item_categoria": item["categoria"] if item else None,
+                "item_detalle": (item.get("detalle") or None) if item else None,
+                "item_tamano": item.get("_tamano") if item else None,
+                "tipo_registro": tipo,
+                "tuvo_comida": tuvo,
+                "tiempo_respuesta_seg": None,
+            }
+
+        for i, comida in enumerate(COMIDAS_DEL_DIA):
+            datos = estado["comidas"][i]
+            if datos["tuvo"] is None:
+                continue
+            registros.append(fila(comida, datos["hora"], tuvo=datos["tuvo"], tipo="comida_hora"))
+            for item in datos["items"]:
+                registros.append(fila(comida, datos["hora"], item=item))
+
+        for ctx, bloques in estado["snacks_pendientes"].items():
+            for bloque in bloques:
+                for item in bloque.get("items", []):
+                    registros.append(fila(ctx, bloque.get("hora"), item=item))
+
+        return registros
+
+    def enviar_registros_en_lote(registros):
+        # Todo en un solo POST: Supabase acepta una lista de filas. Además
+        # de ser mucho más rápido que mandar una por una, evita quedarse a
+        # mitad de camino con la mitad de la encuesta guardada.
+        if estado["modo_local"]:
+            return True
+        if not registros:
+            return True
+        try:
+            resp = requests.post(SUPABASE_URL, headers=HEADERS, json=registros, timeout=20)
+            if not resp.ok:
+                print(f"Error Supabase POST lote [{resp.status_code}]: {resp.text}")
+                return False
+            return True
+        except Exception as e:
+            print("Error de red (enviar lote):", repr(e))
+            return False
+
+    def mostrar_error_envio_final():
         pantalla(
-            ft.ProgressRing(width=48, height=48),
-            texto_estado,
+            ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.RED_700, size=60),
+            ft.Text("No se pudieron guardar tus respuestas.", size=18, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(
+                "Tus respuestas siguen acá, no se perdieron. Fijate que tengas conexión y tocá 'Reintentar'.",
+                size=14, color=ft.Colors.GREY_700, text_align=ft.TextAlign.CENTER,
+            ),
+            ft.ElevatedButton(
+                "Reintentar",
+                on_click=lambda e: enviar_datos_y_mostrar_agradecimiento(),
+                width=ancho_campo(), height=50,
+            ),
             mostrar_volver=False,
         )
 
-        def _enviar():
-            ahora_str = ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S")
-            registros = []
+    def mostrar_gracias_y_volver():
+        pantalla(
+            ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=60),
+            ft.Text("¡Muchas gracias!", size=24, weight=ft.FontWeight.BOLD),
+            ft.Text("Ya podés volver al menú de inicio.", size=14, color=ft.Colors.GREY_700),
+            ft.ElevatedButton(
+                "Volver al inicio",
+                on_click=lambda e: ir_a(mostrar_dashboard),
+                width=ancho_campo(), height=50,
+            ),
+            mostrar_volver=False,
+        )
 
-            for i, comida in enumerate(COMIDAS_DEL_DIA):
-                datos = estado["comidas"][i]
-                if datos["tuvo"] is None:
-                    continue
-                registros.append({
-                    "usuario": estado["email"],
-                    "fecha": ahora_str,
-                    "momento_dia": comida,
-                    "hora_consumo": datos["hora"],
-                    "item_nombre": None,
-                    "item_categoria": None,
-                    "item_detalle": None,
-                    "item_tamano": None,
-                    "tipo_registro": "comida_hora",
-                    "tuvo_comida": datos["tuvo"],
-                    "tiempo_respuesta_seg": None,
-                })
-                for item in datos["items"]:
-                    registros.append({
-                        "usuario": estado["email"],
-                        "fecha": ahora_str,
-                        "momento_dia": comida,
-                        "hora_consumo": datos["hora"],
-                        "item_nombre": item["nombre"],
-                        "item_categoria": item["categoria"],
-                        "item_detalle": item.get("detalle") or None,
-                        "item_tamano": item.get("_tamano"),
-                        "tipo_registro": "item",
-                        "tuvo_comida": True,
-                        "tiempo_respuesta_seg": None,
-                    })
-
-            for ctx, bloques in estado["snacks_pendientes"].items():
-                for bloque in bloques:
-                    for item in bloque.get("items", []):
-                        registros.append({
-                            "usuario": estado["email"],
-                            "fecha": ahora_str,
-                            "momento_dia": ctx,
-                            "hora_consumo": bloque.get("hora"),
-                            "item_nombre": item["nombre"],
-                            "item_categoria": item["categoria"],
-                            "item_detalle": item.get("detalle") or None,
-                            "item_tamano": item.get("_tamano"),
-                            "tipo_registro": "item",
-                            "tuvo_comida": True,
-                            "tiempo_respuesta_seg": None,
-                        })
-
-            for reg in registros:
-                exito, _ = enviar_o_actualizar_registro(reg, None)
-                if not exito:
-                    texto_estado.value = "Hubo un problema al guardar. ¿Reintentamos?"
-                    boton_reintentar = ft.ElevatedButton("Reintentar", on_click=lambda e: ir_a(enviar_datos_y_mostrar_agradecimiento))
-                    pantalla(
-                        ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.RED_700, size=60),
-                        ft.Text("No se pudieron guardar tus respuestas.", size=18, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-                        ft.Text("Fijate que tengas conexión a internet y tocá 'Reintentar'.", size=14, color=ft.Colors.GREY_700, text_align=ft.TextAlign.CENTER),
-                        boton_reintentar,
-                        mostrar_volver=False,
-                    )
-                    return
-
+    def enviar_datos_y_mostrar_agradecimiento():
+        # Sin hilos y en una sola petición: así no hay forma de que la
+        # pantalla quede colgada esperando algo que nunca vuelve. Cualquier
+        # resultado (éxito o error) termina en una pantalla con un botón.
+        if enviar_registros_en_lote(armar_registros_encuesta()):
             marcar_usuario_completado_hoy()
             historial.clear()
             historial_adelante.clear()
-
-            pantalla(
-                ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=60),
-                ft.Text("¡Muchas gracias!", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Volviendo al menú de inicio...", size=14, color=ft.Colors.GREY_700),
-                mostrar_volver=False,
-            )
-            time.sleep(1.5)
-            ir_a(mostrar_dashboard)
-
-        page.run_thread(_enviar)
+            mostrar_gracias_y_volver()
+        else:
+            mostrar_error_envio_final()
 
     # Arranque de la app
     ir_a(mostrar_login)
