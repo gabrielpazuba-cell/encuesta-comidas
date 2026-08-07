@@ -2442,24 +2442,33 @@ def main(page: ft.Page):
                 if ya_cargo_snack
                 else "¿Comiste o tomaste algo entre el desayuno y el almuerzo?"
             )
-            texto_no = "No, seguir con el almuerzo"
         elif contexto == "merienda_cena":
             texto_pregunta = (
                 "¿Comiste o tomaste algo más entre la merienda y la cena?"
                 if ya_cargo_snack
                 else "¿Comiste o tomaste algo entre la merienda y la cena?"
             )
-            texto_no = "No, seguir con la cena"
         else:
             texto_pregunta = "¿Comiste o tomaste algo más en algún otro momento del día?"
-            texto_no = "No, ya terminé"
 
         titulo = ft.Text(texto_pregunta, size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
 
-        boton_agregar = ft.ElevatedButton("Sí, quiero cargarlo", on_click=lambda _: ir_a(mostrar_hora_snack), width=ancho_campo())
-        boton_terminar = ft.OutlinedButton(texto_no, on_click=lambda _: cerrar_bloque_snack(), width=ancho_campo())
+        # Mismo formato que las comidas principales: dos botones al lado,
+        # solo "Sí" y "No".
+        boton_agregar = ft.ElevatedButton(
+            "Sí", on_click=lambda _: ir_a(mostrar_hora_snack),
+            width=ancho_campo() // 2 - 5, height=50,
+        )
+        boton_terminar = ft.OutlinedButton(
+            "No", on_click=lambda _: cerrar_bloque_snack(),
+            width=ancho_campo() // 2 - 5, height=50,
+        )
 
-        pantalla(titulo, ft.Divider(height=10, color=ft.Colors.TRANSPARENT), boton_agregar, boton_terminar)
+        pantalla(
+            titulo,
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            ft.Row([boton_agregar, boton_terminar], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+        )
 
     def mostrar_hora_snack():
         # Si esta pantalla se vuelve a dibujar sin haber confirmado el
