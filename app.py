@@ -2276,14 +2276,9 @@ def main(page: ft.Page):
             estado["items_temporales"].pop(index)
             actualizar_lista_ui()
 
-        # Sin label a propósito: cuando un TextField tiene label, el label
-        # ocupa el interior de la caja mientras está vacía y el hint_text
-        # recién aparece al hacer foco. Dejando solo hint_text, la leyenda
-        # se ve en gris dentro de la caja y se borra sola al empezar a
-        # escribir, que es lo que se busca acá. Qué va en cada caja ya lo
-        # dicen los títulos "Comida" y "Bebida" de arriba.
         input_comida_detalle = ft.TextField(
-            hint_text="Recordá describir en detalle lo que comiste",
+            label="¿Qué comiste?",
+            hint_text="Describí en detalle lo que comiste",
             width=ancho_campo(220),
             expand=True,
             multiline=True,
@@ -2291,7 +2286,8 @@ def main(page: ft.Page):
             max_lines=3,
         )
         input_bebida_detalle = ft.TextField(
-            hint_text="Recordá describir en detalle lo que tomaste",
+            label="¿Qué tomaste?",
+            hint_text="Describí en detalle lo que tomaste",
             width=ancho_campo(220),
             expand=True,
             multiline=True,
