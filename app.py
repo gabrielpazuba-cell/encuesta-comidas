@@ -2152,43 +2152,53 @@ def main(page: ft.Page):
 
         hora_sugerida = HORARIOS_SUGERIDOS.get(comida_actual)
         hora_inicial = estado["hora_ingresada"] or (hora_sugerida.strftime("%H:%M") if hora_sugerida else "")
-        partes_hora = hora_inicial.split(":") if hora_inicial else ["", ""]
+        if hora_inicial:
+            estado["hora_ingresada"] = hora_inicial
 
-        campo_horas = ft.TextField(
-            value=partes_hora[0],
-            width=75, text_align=ft.TextAlign.CENTER,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            max_length=2, text_size=28, hint_text="HH",
+        campo_hora = ft.TextField(
+            value=hora_inicial,
+            read_only=True,
+            width=ancho_campo(200),
+            text_align=ft.TextAlign.CENTER,
+            text_size=26,
+            hint_text="--:--",
         )
-        campo_minutos = ft.TextField(
-            value=partes_hora[1] if len(partes_hora) > 1 else "",
-            width=75, text_align=ft.TextAlign.CENTER,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            max_length=2, text_size=28, hint_text="MM",
+
+        def cambio_hora(e):
+            campo_hora.value = e.control.value.strftime("%H:%M")
+            estado["hora_ingresada"] = campo_hora.value
+            campo_hora.error_text = None
+            page.update()
+
+        # entry_mode=INPUT: el reloj se abre directo en modo teclado, para
+        # escribir la hora a mano, y trae el botoncito del relojito para
+        # pasar a la esfera y elegirla ahí. Los dos modos en un solo control.
+        reloj = ft.TimePicker(
+            value=hora_sugerida,
+            entry_mode=ft.TimePickerEntryMode.INPUT,
+            confirm_text="Aceptar",
+            cancel_text="Cancelar",
+            help_text="Elegí la hora",
+            hour_label_text="Hora",
+            minute_label_text="Minutos",
+            on_change=cambio_hora,
         )
-        error_hora = ft.Text("", color=ft.Colors.RED_700, size=12)
-        selector_hora = ft.Row(
-            [campo_horas, ft.Text(":", size=32, weight=ft.FontWeight.BOLD), campo_minutos],
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
+
+        def abrir_reloj(e):
+            reloj.open = True
+            page.update()
+
+        campo_hora.on_click = abrir_reloj
 
         def confirmar_hora(e):
-            try:
-                h = int(campo_horas.value or "")
-                m = int(campo_minutos.value or "")
-                if not (0 <= h <= 23 and 0 <= m <= 59):
-                    raise ValueError
-            except ValueError:
-                error_hora.value = "Ingresá una hora válida (ej: 8 y 30)"
+            if not campo_hora.value:
+                campo_hora.error_text = "Elegí una hora"
                 page.update()
                 return
-            hora_str = f"{h:02d}:{m:02d}"
-            error_hora.value = ""
             idx = estado["indice_comida"]
-            estado["hora_ingresada"] = hora_str
+            estado["hora_ingresada"] = campo_hora.value
             estado["comidas"][idx]["tuvo"] = True
-            estado["comidas"][idx]["hora"] = hora_str
+            estado["comidas"][idx]["hora"] = campo_hora.value
             avanzar_o_adelantar(mostrar_ingreso_items)
 
         boton_continuar = ft.ElevatedButton(
@@ -2198,11 +2208,11 @@ def main(page: ft.Page):
         # Sección de hora: aparece solo después de tocar "Sí"
         seccion_hora = ft.Column([
             ft.Text("Alrededor de las...", size=15, color=ft.Colors.GREY_700),
-            selector_hora,
-            error_hora,
+            campo_hora,
+            ft.Text("(tocá para escribirla o elegirla en el reloj)", size=12, color=ft.Colors.GREY_500),
             ft.Divider(height=12, color=ft.Colors.TRANSPARENT),
             boton_continuar,
-        ], visible=False, spacing=8)
+        ], visible=False, spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
         def si_click(e):
             boton_si.visible = False
@@ -2224,6 +2234,7 @@ def main(page: ft.Page):
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             ft.Row([boton_si, boton_no], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
             seccion_hora,
+            overlays=[reloj],
         )
 
     # ==========================================================
@@ -2455,28 +2466,41 @@ def main(page: ft.Page):
         # snack (ej. al rotar el celular), no pisamos una hora que la
         # persona ya había elegido con el reloj.
         hora_texto_inicial = estado.get("_hora_snack_temp") or ahora_argentina().strftime("%H:%M")
-        partes_hora_snack = hora_texto_inicial.split(":")
+        hora_sugerida_snack = datetime.strptime(hora_texto_inicial, "%H:%M").time()
 
         titulo = ft.Text("¿A qué hora fue?", size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
 
-        campo_horas_snack = ft.TextField(
-            value=partes_hora_snack[0],
-            width=75, text_align=ft.TextAlign.CENTER,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            max_length=2, text_size=28, hint_text="HH",
+        campo_hora = ft.TextField(
+            value=hora_texto_inicial,
+            read_only=True,
+            width=ancho_campo(200),
+            text_align=ft.TextAlign.CENTER,
+            text_size=26,
         )
-        campo_minutos_snack = ft.TextField(
-            value=partes_hora_snack[1] if len(partes_hora_snack) > 1 else "",
-            width=75, text_align=ft.TextAlign.CENTER,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            max_length=2, text_size=28, hint_text="MM",
+
+        def cambio_hora(e):
+            campo_hora.value = e.control.value.strftime("%H:%M")
+            estado["_hora_snack_temp"] = campo_hora.value
+            page.update()
+
+        # Igual que en las comidas principales: se abre en modo teclado para
+        # escribirla, con el botoncito para pasar a la esfera del reloj.
+        reloj = ft.TimePicker(
+            value=hora_sugerida_snack,
+            entry_mode=ft.TimePickerEntryMode.INPUT,
+            confirm_text="Aceptar",
+            cancel_text="Cancelar",
+            help_text="Elegí la hora",
+            hour_label_text="Hora",
+            minute_label_text="Minutos",
+            on_change=cambio_hora,
         )
-        error_hora_snack = ft.Text("", color=ft.Colors.RED_700, size=12)
-        selector_hora_snack = ft.Row(
-            [campo_horas_snack, ft.Text(":", size=32, weight=ft.FontWeight.BOLD), campo_minutos_snack],
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
+
+        def abrir_reloj(e):
+            reloj.open = True
+            page.update()
+
+        campo_hora.on_click = abrir_reloj
 
         def avanzar_con_hora(hora):
             estado["hora_ingresada"] = hora
@@ -2485,17 +2509,7 @@ def main(page: ft.Page):
             avanzar_o_adelantar(mostrar_ingreso_items)
 
         def continuar(e):
-            try:
-                h = int(campo_horas_snack.value or "")
-                m = int(campo_minutos_snack.value or "")
-                if not (0 <= h <= 23 and 0 <= m <= 59):
-                    raise ValueError
-            except ValueError:
-                error_hora_snack.value = "Ingresá una hora válida (ej: 8 y 30)"
-                page.update()
-                return
-            error_hora_snack.value = ""
-            avanzar_con_hora(f"{h:02d}:{m:02d}")
+            avanzar_con_hora(campo_hora.value or "")
 
         def no_recuerdo(e):
             avanzar_con_hora("")
@@ -2503,7 +2517,15 @@ def main(page: ft.Page):
         boton_continuar = ft.ElevatedButton("Continuar", on_click=continuar, width=ancho_campo())
         boton_no_recuerdo = ft.OutlinedButton("No recuerdo la hora", on_click=no_recuerdo, width=ancho_campo())
 
-        pantalla(titulo, selector_hora_snack, error_hora_snack, ft.Divider(height=20, color=ft.Colors.TRANSPARENT), boton_continuar, boton_no_recuerdo)
+        pantalla(
+            titulo,
+            campo_hora,
+            ft.Text("(tocá para escribirla o elegirla en el reloj)", size=12, color=ft.Colors.GREY_500),
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            boton_continuar,
+            boton_no_recuerdo,
+            overlays=[reloj],
+        )
 
     # ==========================================================
     # PANTALLA 8: ENVÍO A NUBE Y AGRADECIMIENTO
