@@ -1008,9 +1008,15 @@ def main(page: ft.Page):
             texto_error,
             boton_ingresar,
             ft.TextButton("¿Olvidaste tu contraseña?", on_click=lambda _: ir_a(mostrar_recuperar_paso1)),
+            ft.Text(
+                "Si es tu primera vez, se crea la cuenta automáticamente con ese email y contraseña.",
+                size=11,
+                color=ft.Colors.GREY_500,
+                text_align=ft.TextAlign.CENTER,
+            ),
         ])
 
-        pantalla(*controles)
+        pantalla(*controles, mostrar_volver=False)
 
     # ==========================================================
     # RECUPERAR CONTRASEÑA
