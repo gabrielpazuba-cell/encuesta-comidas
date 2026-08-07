@@ -1492,7 +1492,7 @@ def main(page: ft.Page):
                         size=22,
                     ),
                     width=ANCHO_COL,
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment.CENTER,
                     on_click=lambda e, idx=i, op=opcion: on_chip(e, idx, op),
                 )
                 chips_fila[opcion] = chip
