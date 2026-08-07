@@ -1450,16 +1450,21 @@ def main(page: ft.Page):
     def mostrar_encuesta_inicial():
         respuestas = {}  # idx -> "VERDADERO" | "FALSO"
         chips_por_fila = {}  # idx -> {"VERDADERO": Container, "FALSO": Container}
-        error_por_fila = {}  # idx -> Text
+        fila_containers = {}  # idx -> Container (para resaltar errores)
+
+        ANCHO_COL = 85
 
         def actualizar_chips_fila(idx):
             seleccionado = respuestas.get(idx)
             for opcion, chip in chips_por_fila[idx].items():
                 activo = opcion == seleccionado
-                chip.bgcolor = ft.Colors.BLUE_700 if activo else ft.Colors.GREY_300
-                chip.content.color = ft.Colors.WHITE if activo else ft.Colors.BLACK
-            if seleccionado and idx in error_por_fila:
-                error_por_fila[idx].value = ""
+                chip.content = ft.Icon(
+                    ft.Icons.CHECK_BOX if activo else ft.Icons.CHECK_BOX_OUTLINE_BLANK,
+                    color=ft.Colors.BLUE_700 if activo else ft.Colors.GREY_400,
+                    size=22,
+                )
+            if seleccionado:
+                fila_containers[idx].bgcolor = None
             page.update()
 
         def on_chip(e, idx, opcion):
@@ -1468,32 +1473,47 @@ def main(page: ft.Page):
 
         enviando = {"valor": False}
 
-        filas = []
+        cabecera = ft.Row([
+            ft.Container(expand=True),
+            ft.Text("VERDADERO", size=11, weight=ft.FontWeight.BOLD,
+                    width=ANCHO_COL, text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700),
+            ft.Text("FALSO", size=11, weight=ft.FontWeight.BOLD,
+                    width=ANCHO_COL, text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700),
+        ], spacing=8)
+
+        filas = [cabecera, ft.Divider()]
         for i, afirmacion in enumerate(AFIRMACIONES_INICIALES):
             chips_fila = {}
             chips_controles = []
             for opcion in ("VERDADERO", "FALSO"):
                 activo = respuestas.get(i) == opcion
                 chip = ft.Container(
-                    content=ft.Text(opcion, size=12, color=ft.Colors.WHITE if activo else ft.Colors.BLACK),
-                    bgcolor=ft.Colors.BLUE_700 if activo else ft.Colors.GREY_300,
-                    border_radius=20,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=7),
+                    content=ft.Icon(
+                        ft.Icons.CHECK_BOX if activo else ft.Icons.CHECK_BOX_OUTLINE_BLANK,
+                        color=ft.Colors.BLUE_700 if activo else ft.Colors.GREY_400,
+                        size=22,
+                    ),
+                    width=ANCHO_COL,
+                    alignment=ft.alignment.center,
                     on_click=lambda e, idx=i, op=opcion: on_chip(e, idx, op),
                 )
                 chips_fila[opcion] = chip
                 chips_controles.append(chip)
             chips_por_fila[i] = chips_fila
 
-            error_text = ft.Text("", color=ft.Colors.RED_700, size=11)
-            error_por_fila[i] = error_text
-
-            filas.append(ft.Column([
-                ft.Text(f"{i + 1}. {afirmacion}", size=14),
-                ft.Row(chips_controles, spacing=8),
-                error_text,
-            ], spacing=4))
-            filas.append(ft.Divider())
+            fila_container = ft.Container(
+                content=ft.Row(
+                    [ft.Text(afirmacion, size=13, expand=True), *chips_controles],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=8,
+                ),
+                padding=ft.padding.symmetric(vertical=8, horizontal=4),
+                border_radius=6,
+            )
+            fila_containers[i] = fila_container
+            filas.append(fila_container)
+            if i < len(AFIRMACIONES_INICIALES) - 1:
+                filas.append(ft.Divider(height=1, color=ft.Colors.GREY_200))
 
         def guardar_encuesta_inicial(e):
             if enviando["valor"]:
@@ -1501,7 +1521,7 @@ def main(page: ft.Page):
             falta = [i for i in range(len(AFIRMACIONES_INICIALES)) if i not in respuestas]
             if falta:
                 for i in falta:
-                    error_por_fila[i].value = "Elegí una opción"
+                    fila_containers[i].bgcolor = ft.Colors.RED_50
                 page.update()
                 return
 
