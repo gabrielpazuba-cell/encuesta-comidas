@@ -1,0 +1,40 @@
+name: Recordatorios diarios
+
+# 00:00 UTC = 21:00 en Argentina (UTC-3). A esa hora ya pasó el día entero,
+# así que quien todavía no cargó tiene tiempo de hacerlo antes de medianoche,
+# que es cuando la encuesta se vuelve a habilitar.
+#
+# Nota: GitHub puede demorar la ejecución unos minutos si hay mucha carga.
+# Para una tarea diaria no es un problema.
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  # Permite dispararlo a mano desde la pestaña Actions, con la opción de
+  # hacerlo en modo prueba (no manda mails, solo muestra a quién le tocaría).
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Modo prueba (no envía mails)"
+        type: boolean
+        default: true
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Enviar recordatorios
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python enviar_recordatorios.py
