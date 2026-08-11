@@ -52,6 +52,12 @@ GOOGLE_REDIRECT_URL = os.environ.get("GOOGLE_REDIRECT_URL", "")  # ej: https://t
 
 COMIDAS_DEL_DIA = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
+# Límites de participación en el estudio. Cuando se alcanza cualquiera de los
+# dos, la persona ya no puede completar más encuestas ni entrar al resto de la
+# app: solo ve la pantalla de agradecimiento correspondiente.
+MAX_CARGAS = 5           # cargas completas por participante
+DIAS_PARTICIPACION = 10  # días disponibles, contados desde la primera carga
+
 # Horario habitual de cada comida: se usa como sugerencia inicial en el
 # reloj, pero cada persona lo puede editar libremente antes de confirmar.
 HORARIOS_SUGERIDOS = {
@@ -524,6 +530,7 @@ def main(page: ft.Page):
         "modo_local": False,              # True cuando se entra con el acceso piloto (no toca Supabase)
         "sesiones_historicas": 0,
         "ultima_fecha_completado": None,  # "YYYY-MM-DD" o None
+        "fecha_primera_carga": None,      # "YYYY-MM-DD": desde acá se cuentan los DIAS_PARTICIPACION
         "_dashboard_token": None,         # controla el hilo de la cuenta regresiva
         "_latido_token": None,            # controla el hilo del latido (mantener viva la conexión)
 
@@ -850,6 +857,7 @@ def main(page: ft.Page):
         estado["usuario_id"] = usuario["id"]
         estado["sesiones_historicas"] = usuario.get("sesiones_historicas") or 0
         estado["ultima_fecha_completado"] = usuario.get("ultima_fecha_completado")
+        estado["fecha_primera_carga"] = usuario.get("fecha_primera_carga")
         estado["modo_local"] = local
         estado["tiene_password"] = usuario.get("password_hash") is not None
         estado["pregunta_seguridad"] = usuario.get("pregunta_seguridad") or ""
@@ -870,7 +878,14 @@ def main(page: ft.Page):
         # de atenderse y la pantalla se queda en blanco después de elegir la
         # cuenta de Google. Si hace falta consultar algo, va con handler
         # async + asyncio.to_thread (ver comenzar_encuesta).
-        if estado["nombre"]:
+        # Si ya terminó su participación, va directo al agradecimiento: no
+        # tiene que pasar por el perfil ni por ningún otro formulario.
+        fin = estado_participacion()
+        if fin == "completo":
+            ir_a(mostrar_participacion_completa)
+        elif fin == "vencido":
+            ir_a(mostrar_participacion_vencida)
+        elif estado["nombre"]:
             ir_a(mostrar_dashboard)
         else:
             # Primera vez que entra este usuario: tiene que completar su
@@ -1170,6 +1185,68 @@ def main(page: ft.Page):
             return True
         return estado["ultima_fecha_completado"] != ahora_argentina().date().isoformat()
 
+    def estado_participacion():
+        # Devuelve None si la persona todavía puede participar, o el motivo
+        # por el que ya no: "completo" (llegó a las MAX_CARGAS) o "vencido"
+        # (pasaron los DIAS_PARTICIPACION desde su primera carga).
+        #
+        # El acceso piloto SÍ pasa por este corte, para poder probarlo. Como
+        # sus contadores viven solo en memoria, alcanza con cerrar sesión y
+        # volver a entrar para empezar de cero.
+        if estado["sesiones_historicas"] >= MAX_CARGAS:
+            return "completo"
+
+        primera = estado.get("fecha_primera_carga")
+        if primera:
+            try:
+                dia_inicio = datetime.strptime(str(primera)[:10], "%Y-%m-%d").date()
+            except ValueError:
+                # Fecha con formato inesperado: no cortamos el acceso por eso.
+                return None
+            # El día de la primera carga cuenta como día 1, así que quedan
+            # disponibles DIAS_PARTICIPACION días en total.
+            if (ahora_argentina().date() - dia_inicio).days >= DIAS_PARTICIPACION:
+                return "vencido"
+
+        return None
+
+    def mostrar_participacion_completa():
+        pantalla(
+            ft.Icon(ft.Icons.CHECK_CIRCLE, size=56, color=ft.Colors.GREEN),
+            ft.Text("¡Completaste el estudio!", size=24, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(
+                f"Ya registraste las {MAX_CARGAS} cargas. Muchas gracias por haber participado: "
+                "la constancia día a día es justamente lo que hace posible este tipo de investigación.",
+                text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700,
+            ),
+            ft.Text(
+                "Con esto tu participación queda terminada. No hace falta que vuelvas a entrar.",
+                text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700,
+            ),
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            ft.TextButton("Cerrar sesión", on_click=cerrar_sesion),
+            mostrar_volver=False,
+        )
+
+    def mostrar_participacion_vencida():
+        pantalla(
+            ft.Icon(ft.Icons.EVENT_AVAILABLE, size=56, color=ft.Colors.BLUE_GREY),
+            ft.Text("Gracias por haber participado", size=24, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            ft.Text(
+                f"El período de participación de {DIAS_PARTICIPACION} días ya terminó, "
+                "así que la encuesta no está más disponible.",
+                text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700,
+            ),
+            ft.Text(
+                "Los registros que llegaste a cargar quedaron guardados y son un aporte "
+                "para la investigación. ¡Gracias por el tiempo que le dedicaste!",
+                text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700,
+            ),
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            ft.TextButton("Cerrar sesión", on_click=cerrar_sesion),
+            mostrar_volver=False,
+        )
+
     def debe_mostrar_instrucciones():
         # Acceso piloto: siempre se muestra, para poder probar esa pantalla
         # las veces que haga falta.
@@ -1309,6 +1386,7 @@ def main(page: ft.Page):
         estado["modo_local"] = False
         estado["sesiones_historicas"] = 0
         estado["ultima_fecha_completado"] = None
+        estado["fecha_primera_carga"] = None
         estado["tiene_password"] = True
         estado["pregunta_seguridad"] = ""
         estado["nombre"] = ""
@@ -1574,6 +1652,17 @@ def main(page: ft.Page):
         pantalla(titulo, subtitulo, ft.Divider(), *filas, boton_continuar, mostrar_volver=False)
 
     def mostrar_dashboard():
+        # Corte de participación: se chequea acá porque el menú es el paso
+        # obligado para llegar a cualquier otra pantalla (encuesta, resumen,
+        # perfil). Si ya terminó, solo ve el agradecimiento y "Cerrar sesión".
+        fin = estado_participacion()
+        if fin == "completo":
+            mostrar_participacion_completa()
+            return
+        if fin == "vencido":
+            mostrar_participacion_vencida()
+            return
+
         estado["indice_comida"] = 0
 
         habilitado = esta_habilitado_hoy()
@@ -2585,15 +2674,34 @@ def main(page: ft.Page):
     def marcar_usuario_completado_hoy():
         hoy = ahora_argentina().date().isoformat()
         nuevo_historico = estado["sesiones_historicas"] + 1
+        # La primera carga marca el arranque de los DIAS_PARTICIPACION.
+        es_primera_carga = not estado.get("fecha_primera_carga")
 
         if not estado["modo_local"]:
-            try:
-                resp = requests.patch(
+            datos = {"sesiones_historicas": nuevo_historico, "ultima_fecha_completado": hoy}
+            if es_primera_carga:
+                datos["fecha_primera_carga"] = hoy
+
+            def _patch(cuerpo):
+                return requests.patch(
                     f"{SUPABASE_USUARIOS_URL}?id=eq.{estado['usuario_id']}",
                     headers=HEADERS,
-                    json={"sesiones_historicas": nuevo_historico, "ultima_fecha_completado": hoy},
+                    json=cuerpo,
+                    timeout=10,
                 )
-                resp.raise_for_status()
+
+            try:
+                resp = _patch(datos)
+                # Red de seguridad: si todavía no se corrió
+                # supabase_agregar_fecha_primera_carga.sql, la columna no
+                # existe y Supabase rechaza el PATCH entero. En ese caso
+                # guardamos al menos el contador y la fecha del día, para no
+                # perder la carga que la persona acaba de completar.
+                if not resp.ok and "fecha_primera_carga" in datos and "fecha_primera_carga" in resp.text:
+                    print("Falta la columna 'fecha_primera_carga' en usuarios: correr supabase_agregar_fecha_primera_carga.sql")
+                    resp = _patch({k: v for k, v in datos.items() if k != "fecha_primera_carga"})
+                if not resp.ok:
+                    print(f"Error Supabase (actualizar usuario) [{resp.status_code}]: {resp.text}")
             except Exception as e:
                 print("Error de red (actualizar usuario):", e)
 
@@ -2602,6 +2710,8 @@ def main(page: ft.Page):
         # habilitada de nuevo por un error de red pasajero.
         estado["sesiones_historicas"] = nuevo_historico
         estado["ultima_fecha_completado"] = hoy
+        if es_primera_carga:
+            estado["fecha_primera_carga"] = hoy
 
     def enviar_datos_y_mostrar_agradecimiento():
         texto_estado = ft.Text("Guardando tus respuestas...", size=15, color=ft.Colors.GREY_700)
