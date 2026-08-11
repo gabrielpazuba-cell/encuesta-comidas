@@ -1926,45 +1926,84 @@ def main(page: ft.Page):
             label="Tu respuesta",
             hint_text=(
                 "Dejalo vacío si no querés cambiarla"
-                if estado.get("pregunta_seguridad")
+                if (not es_primera_vez and estado.get("pregunta_seguridad"))
                 else "La vamos a usar solo si algún día te olvidás la contraseña"
             ),
             width=ancho_campo(),
         )
         texto_error = ft.Text("", color=ft.Colors.RED, text_align=ft.TextAlign.CENTER)
 
+        # Texto único para todos los campos vacíos: aparece en rojo justo
+        # debajo del campo que falta completar.
+        OBLIGATORIO = "Este campo es obligatorio para continuar"
+
+        campos_del_perfil = [
+            input_nombre, input_edad, dropdown_genero,
+            dropdown_educacion, input_ocupacion, dropdown_ubicacion,
+            dropdown_pregunta_seguridad, input_respuesta_seguridad,
+        ]
+
         def guardar(e):
             texto_error.value = ""
-            input_nombre.error_text = None
-            input_edad.error_text = None
-            dropdown_genero.error_text = None
+            for campo in campos_del_perfil:
+                campo.error_text = None
 
             nombre_valor = (input_nombre.value or "").strip()
             edad_texto = (input_edad.value or "").strip()
+            ocupacion_valor = (input_ocupacion.value or "").strip()
 
+            # Todos los campos son obligatorios. En los desplegables no hace
+            # falta una opción "prefiero no decir" salvo en Género, que ya la
+            # tiene entre sus opciones.
             hay_error = False
-            if not nombre_valor:
-                input_nombre.error_text = "Ingresá tu nombre"
-                hay_error = True
-            if not edad_texto or not edad_texto.isdigit():
-                input_edad.error_text = "Ingresá tu edad (solo números)"
-                hay_error = True
-            # El género es obligatorio (hay una opción "Prefiero no decir"
-            # justamente para quien no quiera responderlo).
-            if not dropdown_genero.value:
-                dropdown_genero.error_text = "Elegí una opción"
+            for campo, valor in [
+                (input_nombre, nombre_valor),
+                (input_edad, edad_texto),
+                (dropdown_genero, dropdown_genero.value),
+                (dropdown_educacion, dropdown_educacion.value),
+                (input_ocupacion, ocupacion_valor),
+                (dropdown_ubicacion, dropdown_ubicacion.value),
+            ]:
+                if not valor:
+                    campo.error_text = OBLIGATORIO
+                    hay_error = True
+
+            # La edad, además de estar completa, tiene que ser un número.
+            if edad_texto and not edad_texto.isdigit():
+                input_edad.error_text = "Ingresá tu edad en números"
                 hay_error = True
 
+            # Pregunta de seguridad: solo se le pide a quien tiene contraseña
+            # propia (quien entró con Google no la necesita, ver más abajo).
+            # La primera vez es obligatoria, porque es la única forma de
+            # recuperar la cuenta si se la olvida. Si ya tenía una configurada,
+            # dejar los campos vacíos significa "no la cambies".
+            respuesta_valor = (input_respuesta_seguridad.value or "").strip()
+            pregunta_valor = None
+            hash_respuesta = None
+            salt_respuesta = None
+            pide_seguridad = estado.get("tiene_password", True)
+
+            if pide_seguridad:
+                obligatoria = es_primera_vez or not estado.get("pregunta_seguridad")
+                if not dropdown_pregunta_seguridad.value and (obligatoria or respuesta_valor):
+                    dropdown_pregunta_seguridad.error_text = OBLIGATORIO
+                    hay_error = True
+                if not respuesta_valor and (obligatoria or dropdown_pregunta_seguridad.value):
+                    input_respuesta_seguridad.error_text = OBLIGATORIO
+                    hay_error = True
+
+            # Un solo corte con todos los campos ya marcados, para que la
+            # persona vea de una sola vez todo lo que le falta completar.
             if hay_error:
-                texto_error.value = "Revisá los campos marcados en rojo arriba."
+                texto_error.value = "Revisá los campos marcados en rojo."
                 page.update()
                 return
 
             edad_valor = int(edad_texto)
             genero_valor = dropdown_genero.value
-            educacion_valor = dropdown_educacion.value or ""
-            ocupacion_valor = (input_ocupacion.value or "").strip()
-            ubicacion_valor = dropdown_ubicacion.value or ""
+            educacion_valor = dropdown_educacion.value
+            ubicacion_valor = dropdown_ubicacion.value
 
             # El filtro de edad solo aplica al completar el perfil por primera
             # vez (no vuelve a echar a alguien que ya venía participando y
@@ -1974,19 +2013,7 @@ def main(page: ft.Page):
                 ir_a(mostrar_no_apto)
                 return
 
-            respuesta_valor = (input_respuesta_seguridad.value or "").strip()
-            pregunta_valor = None
-            hash_respuesta = None
-            salt_respuesta = None
-            if respuesta_valor and not dropdown_pregunta_seguridad.value:
-                texto_error.value = "Elegí una pregunta de seguridad antes de escribir la respuesta."
-                page.update()
-                return
-            if dropdown_pregunta_seguridad.value and not respuesta_valor:
-                texto_error.value = "Escribí una respuesta para la pregunta de seguridad que elegiste."
-                page.update()
-                return
-            if respuesta_valor and dropdown_pregunta_seguridad.value:
+            if pide_seguridad and respuesta_valor and dropdown_pregunta_seguridad.value:
                 pregunta_valor = dropdown_pregunta_seguridad.value
                 salt_respuesta = generar_salt()
                 hash_respuesta = hash_contrasena(_normalizar_texto(respuesta_valor), salt_respuesta)
