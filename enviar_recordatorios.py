@@ -131,7 +131,10 @@ def armar_mail(remitente, usuario):
 
 def main():
     gmail_user = os.environ.get("GMAIL_USER", "").strip()
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    # Google muestra la contraseña de aplicación en grupos de 4 ("abcd efgh
+    # ijkl mnop"), pero al usarla no van los espacios. Los sacamos acá para
+    # que no falle si quedó copiada tal cual.
+    gmail_pass = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
     supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
     supabase_key = os.environ.get("SUPABASE_KEY", "").strip()
     dry_run = os.environ.get("DRY_RUN", "").strip() == "1"
