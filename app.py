@@ -532,6 +532,7 @@ def main(page: ft.Page):
 
         "nombre": "",       # cómo se lo saluda ("Hola, {nombre}!"); si está vacío se usa el email
         "edad": None,
+        "genero": "",       # obligatorio al completar el perfil por primera vez
         "educacion": "",
         "ocupacion": "",
         "ubicacion": "",    # provincia donde vive
@@ -854,6 +855,7 @@ def main(page: ft.Page):
         estado["pregunta_seguridad"] = usuario.get("pregunta_seguridad") or ""
         estado["nombre"] = usuario.get("nombre") or ""
         estado["edad"] = usuario.get("edad")
+        estado["genero"] = usuario.get("genero") or ""
         estado["educacion"] = usuario.get("educacion") or ""
         estado["ocupacion"] = usuario.get("ocupacion") or ""
         estado["ubicacion"] = usuario.get("ubicacion") or ""
@@ -1311,6 +1313,7 @@ def main(page: ft.Page):
         estado["pregunta_seguridad"] = ""
         estado["nombre"] = ""
         estado["edad"] = None
+        estado["genero"] = ""
         estado["educacion"] = ""
         estado["ocupacion"] = ""
         estado["ubicacion"] = ""
@@ -1704,6 +1707,9 @@ def main(page: ft.Page):
     OPCIONES_EDUCACION = [
         "Primario", "Secundario", "Terciario", "Universitario", "Posgrado", "Otro",
     ]
+    OPCIONES_GENERO = [
+        "Mujer", "Varón", "Otra opción no listada", "Prefiero no decir",
+    ]
     OPCIONES_PROVINCIAS = [
         "CABA (Ciudad Autónoma de Buenos Aires)", "Buenos Aires", "Catamarca", "Chaco",
         "Chubut", "Córdoba", "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa",
@@ -1730,10 +1736,10 @@ def main(page: ft.Page):
         "¿Cuál es tu película favorita?",
     ]
 
-    def guardar_perfil_supabase(nombre, edad, educacion, ocupacion, ubicacion, pregunta_seguridad=None, respuesta_hash=None, respuesta_salt=None):
+    def guardar_perfil_supabase(nombre, edad, genero, educacion, ocupacion, ubicacion, pregunta_seguridad=None, respuesta_hash=None, respuesta_salt=None):
         datos = {
-            "nombre": nombre, "edad": edad, "educacion": educacion,
-            "ocupacion": ocupacion, "ubicacion": ubicacion,
+            "nombre": nombre, "edad": edad, "genero": genero,
+            "educacion": educacion, "ocupacion": ocupacion, "ubicacion": ubicacion,
         }
         # Solo se tocan estos campos si la persona escribió una respuesta
         # nueva: si los dejó vacíos porque ya tenía una configurada de
@@ -1742,15 +1748,36 @@ def main(page: ft.Page):
             datos["pregunta_seguridad"] = pregunta_seguridad
             datos["respuesta_seguridad_hash"] = respuesta_hash
             datos["respuesta_seguridad_salt"] = respuesta_salt
-        try:
-            resp = requests.patch(
+
+        def _patch(cuerpo):
+            return requests.patch(
                 f"{SUPABASE_USUARIOS_URL}?id=eq.{estado['usuario_id']}",
                 headers=HEADERS,
-                json=datos,
+                json=cuerpo,
                 timeout=10,
             )
-            resp.raise_for_status()
-            return True
+
+        try:
+            resp = _patch(datos)
+            if resp.ok:
+                return True
+
+            # Red de seguridad: si todavía no se corrió
+            # supabase_agregar_genero.sql, la columna "genero" no existe y
+            # Supabase rechaza el PATCH entero (error PGRST204). En ese caso
+            # guardamos el resto del perfil igual, para no dejar a la persona
+            # trabada en esta pantalla sin poder avanzar.
+            if "genero" in datos and "genero" in resp.text:
+                print("Falta la columna 'genero' en la tabla usuarios: correr supabase_agregar_genero.sql")
+                datos_sin_genero = {k: v for k, v in datos.items() if k != "genero"}
+                resp2 = _patch(datos_sin_genero)
+                if resp2.ok:
+                    return True
+                print(f"Error Supabase (guardar perfil sin genero) [{resp2.status_code}]: {resp2.text}")
+                return False
+
+            print(f"Error Supabase (guardar perfil) [{resp.status_code}]: {resp.text}")
+            return False
         except Exception as e:
             print("Error de red (guardar perfil):", e)
             return False
@@ -1780,6 +1807,12 @@ def main(page: ft.Page):
             width=ancho_campo(),
             keyboard_type=ft.KeyboardType.NUMBER,
             input_filter=ft.NumbersOnlyInputFilter(),
+        )
+        dropdown_genero = ft.Dropdown(
+            label="Género",
+            options=[ft.dropdown.Option(op) for op in OPCIONES_GENERO],
+            value=estado["genero"] or None,
+            width=ancho_campo(),
         )
         dropdown_educacion = ft.Dropdown(
             label="Nivel educativo",
@@ -1815,6 +1848,7 @@ def main(page: ft.Page):
             texto_error.value = ""
             input_nombre.error_text = None
             input_edad.error_text = None
+            dropdown_genero.error_text = None
 
             nombre_valor = (input_nombre.value or "").strip()
             edad_texto = (input_edad.value or "").strip()
@@ -1826,6 +1860,11 @@ def main(page: ft.Page):
             if not edad_texto or not edad_texto.isdigit():
                 input_edad.error_text = "Ingresá tu edad (solo números)"
                 hay_error = True
+            # El género es obligatorio (hay una opción "Prefiero no decir"
+            # justamente para quien no quiera responderlo).
+            if not dropdown_genero.value:
+                dropdown_genero.error_text = "Elegí una opción"
+                hay_error = True
 
             if hay_error:
                 texto_error.value = "Revisá los campos marcados en rojo arriba."
@@ -1833,6 +1872,7 @@ def main(page: ft.Page):
                 return
 
             edad_valor = int(edad_texto)
+            genero_valor = dropdown_genero.value
             educacion_valor = dropdown_educacion.value or ""
             ocupacion_valor = (input_ocupacion.value or "").strip()
             ubicacion_valor = dropdown_ubicacion.value or ""
@@ -1864,6 +1904,7 @@ def main(page: ft.Page):
 
             estado["nombre"] = nombre_valor
             estado["edad"] = edad_valor
+            estado["genero"] = genero_valor
             estado["educacion"] = educacion_valor
             estado["ocupacion"] = ocupacion_valor
             estado["ubicacion"] = ubicacion_valor
@@ -1871,7 +1912,7 @@ def main(page: ft.Page):
                 estado["pregunta_seguridad"] = pregunta_valor
 
             if not estado["modo_local"]:
-                if not guardar_perfil_supabase(nombre_valor, edad_valor, educacion_valor, ocupacion_valor, ubicacion_valor, pregunta_valor, hash_respuesta, salt_respuesta):
+                if not guardar_perfil_supabase(nombre_valor, edad_valor, genero_valor, educacion_valor, ocupacion_valor, ubicacion_valor, pregunta_valor, hash_respuesta, salt_respuesta):
                     texto_error.value = "No pudimos guardar los cambios. Revisá tu conexión e intentá de nuevo."
                     page.update()
                     return
@@ -1893,7 +1934,7 @@ def main(page: ft.Page):
                     color=ft.Colors.GREY_700,
                 )
             )
-        controles.extend([input_nombre, input_edad, dropdown_educacion, input_ocupacion, dropdown_ubicacion])
+        controles.extend([input_nombre, input_edad, dropdown_genero, dropdown_educacion, input_ocupacion, dropdown_ubicacion])
         if estado.get("tiene_password", True):
             # No tiene sentido pedir esto a alguien que entró con Google:
             # nunca va a necesitar "¿Olvidaste tu contraseña?" porque no
