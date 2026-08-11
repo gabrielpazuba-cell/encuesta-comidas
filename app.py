@@ -2253,8 +2253,12 @@ def main(page: ft.Page):
             texto_titulo = f"Decinos todo lo que tuviste para {ARTICULO_COMIDA.get(momento, momento.lower())} ({hora})."
         titulo = ft.Text(texto_titulo, size=18, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
 
-        lista_comida_ui = ft.Column()
-        lista_bebida_ui = ft.Column()
+        # Mismo ancho que las filas de los inputs de abajo: sin un ancho
+        # fijo, el ft.Text(expand=True) de cada fila estira la lista a todo
+        # el ancho de la tarjeta y queda desalineada (pegada a la izquierda)
+        # respecto de los campos, que sí van con ancho_campo().
+        lista_comida_ui = ft.Column(width=ancho_campo(), spacing=0)
+        lista_bebida_ui = ft.Column(width=ancho_campo(), spacing=0)
 
         def actualizar_lista_ui():
             lista_comida_ui.controls.clear()
