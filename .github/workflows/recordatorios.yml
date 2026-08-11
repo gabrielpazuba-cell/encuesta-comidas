@@ -1,14 +1,14 @@
 name: Recordatorios diarios
 
-# 00:00 UTC = 21:00 en Argentina (UTC-3). A esa hora ya pasó el día entero,
-# así que quien todavía no cargó tiene tiempo de hacerlo antes de medianoche,
-# que es cuando la encuesta se vuelve a habilitar.
+# 13:00 UTC = 10:00 de la mañana en Argentina (UTC-3). El cron de GitHub
+# siempre va en UTC y no ajusta por horario de verano, así que si algún día
+# cambia el huso hay que corregir este número a mano.
 #
 # Nota: GitHub puede demorar la ejecución unos minutos si hay mucha carga.
 # Para una tarea diaria no es un problema.
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 13 * * *"
   # Permite dispararlo a mano desde la pestaña Actions, con la opción de
   # hacerlo en modo prueba (no manda mails, solo muestra a quién le tocaría).
   workflow_dispatch:
