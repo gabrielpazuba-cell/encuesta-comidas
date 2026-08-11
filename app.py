@@ -79,10 +79,13 @@ VERBO_PASADO = {
 }
 
 # Además de las 4 comidas principales, la encuesta pregunta por "snacking"
-# en tres momentos: entre desayuno y almuerzo, entre merienda y cena, y un
-# cierre general al final ("¿comiste algo más en algún otro momento?").
-# Estas etiquetas son las que se guardan en la columna momento_dia de
-# Supabase para los items de cada bloque.
+# una sola vez, al final de las 4 comidas: ahí se pueden cargar todas las
+# colaciones del día, cada una con su hora.
+#
+# Las dos primeras claves quedan de cuando el snacking se preguntaba también
+# entre desayuno/almuerzo y entre merienda/cena: ya no se usan para cargar,
+# pero se mantienen para que el resumen siga mostrando bien los registros
+# viejos que quedaron guardados con esas etiquetas en Supabase.
 ETIQUETAS_SNACK = {
     "desayuno_almuerzo": "Snack entre desayuno y almuerzo",
     "merienda_cena": "Snack entre merienda y cena",
@@ -2099,11 +2102,10 @@ def main(page: ft.Page):
 
         comida_cerrada = idx
         estado["indice_comida"] += 1
-        if comida_cerrada == 0:
-            abrir_bloque_snack("desayuno_almuerzo")
-        elif comida_cerrada == 2:
-            abrir_bloque_snack("merienda_cena")
-        elif comida_cerrada == 3:
+        # Los snacks se preguntan una sola vez, al final de las 4 comidas
+        # principales (antes se preguntaba también entre desayuno/almuerzo
+        # y entre merienda/cena).
+        if comida_cerrada == len(COMIDAS_DEL_DIA) - 1:
             abrir_bloque_snack("final")
         else:
             ir_a(mostrar_pregunta_hora)
@@ -2433,25 +2435,20 @@ def main(page: ft.Page):
         # medias para un snack anterior que se abandonó, la descartamos.
         estado["_hora_snack_temp"] = None
 
-        contexto = estado["_contexto_snack"]
         ya_cargo_snack = estado["_snacks_en_bloque"] > 0
-
-        if contexto == "desayuno_almuerzo":
-            texto_pregunta = (
-                "¿Comiste o tomaste algo más entre el desayuno y el almuerzo?"
-                if ya_cargo_snack
-                else "¿Comiste o tomaste algo entre el desayuno y el almuerzo?"
-            )
-        elif contexto == "merienda_cena":
-            texto_pregunta = (
-                "¿Comiste o tomaste algo más entre la merienda y la cena?"
-                if ya_cargo_snack
-                else "¿Comiste o tomaste algo entre la merienda y la cena?"
-            )
-        else:
-            texto_pregunta = "¿Comiste o tomaste algo más en algún otro momento del día?"
+        texto_pregunta = (
+            "¿Comiste o tomaste algo más fuera de las comidas?"
+            if ya_cargo_snack
+            else "En las últimas 24hs, ¿comiste o tomaste algo fuera de las comidas?"
+        )
 
         titulo = ft.Text(texto_pregunta, size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
+        subtitulo = ft.Text(
+            "Por ejemplo, una colación o un snack en cualquier momento del día."
+            if not ya_cargo_snack
+            else "Podés cargar todos los que quieras, uno por vez.",
+            size=13, color=ft.Colors.GREY_600, text_align=ft.TextAlign.CENTER,
+        )
 
         # Mismo formato que las comidas principales: dos botones al lado,
         # solo "Sí" y "No".
@@ -2466,6 +2463,7 @@ def main(page: ft.Page):
 
         pantalla(
             titulo,
+            subtitulo,
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             ft.Row([boton_agregar, boton_terminar], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
         )
