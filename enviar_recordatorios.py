@@ -19,6 +19,10 @@ Variables de entorno que necesita:
   SUPABASE_URL        url base de la API REST del proyecto
   SUPABASE_KEY        clave de la API
   DRY_RUN             "1" para no enviar nada y solo mostrar el resumen
+  TEST_EMAIL          si viene una dirección, manda UN mail de prueba a esa
+                      dirección y termina, sin tocar la base de participantes.
+                      Sirve para verificar que la contraseña de aplicación
+                      funciona, sin esperar a que haya un destinatario real.
 
 IMPORTANTE sobre la privacidad: los logs de GitHub Actions son públicos si el
 repositorio es público, así que acá nunca se imprimen las direcciones de los
@@ -129,6 +133,28 @@ def armar_mail(remitente, usuario):
     return mensaje
 
 
+def enviar_uno(gmail_user, gmail_pass, mensaje):
+    """Abre la conexión con Gmail y manda un solo mensaje."""
+    contexto = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=contexto, timeout=60) as servidor:
+        servidor.login(gmail_user, gmail_pass)
+        servidor.send_message(mensaje)
+
+
+def mail_de_prueba(remitente, destino):
+    mensaje = EmailMessage()
+    mensaje["Subject"] = "Prueba de configuración - Encuesta de Comidas"
+    mensaje["From"] = remitente
+    mensaje["To"] = destino
+    mensaje.set_content(
+        "Este es un mail de prueba.\n\n"
+        "Si te llegó, la cuenta de envío está bien configurada y los "
+        "recordatorios automáticos van a poder salir sin problemas.\n\n"
+        "No hace falta que respondas.\n"
+    )
+    return mensaje
+
+
 def main():
     gmail_user = os.environ.get("GMAIL_USER", "").strip()
     # Google muestra la contraseña de aplicación en grupos de 4 ("abcd efgh
@@ -152,6 +178,27 @@ def main():
     if faltan and not (dry_run and faltan == ["GMAIL_APP_PASSWORD"]):
         print(f"ERROR: faltan variables de entorno: {', '.join(faltan)}")
         return 1
+
+    # Envío de prueba: valida la contraseña de aplicación sin depender de que
+    # hoy haya algún participante a quien mandarle. No toca la base.
+    test_email = os.environ.get("TEST_EMAIL", "").strip()
+    if test_email:
+        print(f"Mandando un mail de prueba a {enmascarar(test_email)}...")
+        try:
+            enviar_uno(gmail_user, gmail_pass, mail_de_prueba(gmail_user, test_email))
+        except smtplib.SMTPAuthenticationError:
+            print(
+                "ERROR de autenticación con Gmail.\n"
+                "GMAIL_APP_PASSWORD tiene que ser una CONTRASEÑA DE APLICACIÓN "
+                "de 16 caracteres (no la contraseña normal de la cuenta), y la "
+                "cuenta tiene que tener activada la verificación en dos pasos."
+            )
+            return 1
+        except Exception as e:
+            print(f"ERROR al mandar el mail de prueba: {e!r}")
+            return 1
+        print("Mail de prueba enviado. Revisá la casilla (mirá también spam).")
+        return 0
 
     hoy = datetime.now(ZONA_ARGENTINA).date()
     print(f"Fecha (hora Argentina): {hoy}")

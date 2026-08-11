@@ -17,6 +17,10 @@ on:
         description: "Modo prueba (no envía mails)"
         type: boolean
         default: true
+      test_email:
+        description: "Mandar UN mail de prueba a esta dirección (deja vacío para el envío normal)"
+        type: string
+        default: ""
 
 jobs:
   enviar:
@@ -37,4 +41,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          TEST_EMAIL: ${{ inputs.test_email }}
         run: python enviar_recordatorios.py
