@@ -2522,10 +2522,16 @@ def main(page: ft.Page):
             estado["items_temporales"][idx]["_tamano"] = opcion
             actualizar_chips(idx)
 
+        # Cada ítem va en una columna del mismo ancho y con todo centrado.
+        # Sin un ancho fijo, cada bloque se adapta al largo del nombre del
+        # ítem y el conjunto queda desparejo y corrido a un costado.
         filas_items = []
         for i, item in enumerate(estado["items_temporales"]):
             icono = emoji_para_item(item["nombre"], item["categoria"])
-            label = ft.Text(f"{icono} {item['nombre']}", size=15)
+            label = ft.Text(
+                f"{icono} {item['nombre']}",
+                size=15, text_align=ft.TextAlign.CENTER,
+            )
 
             chips_item = {}
             chips_fila = []
@@ -2542,17 +2548,24 @@ def main(page: ft.Page):
                 chips_fila.append(chip)
             chips_por_item[i] = chips_item
 
-            error_text = ft.Text("", color=ft.Colors.RED_700, size=12)
+            error_text = ft.Text("", color=ft.Colors.RED_700, size=12, text_align=ft.TextAlign.CENTER)
             error_por_item[i] = error_text
 
-            filas_items.append(ft.Column([
-                label,
-                ft.Row(chips_fila, spacing=8),
-                error_text,
-            ], spacing=6))
+            filas_items.append(ft.Column(
+                [
+                    label,
+                    ft.Row(chips_fila, spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+                    error_text,
+                ],
+                spacing=6,
+                width=ancho_campo(),
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ))
 
             if i < len(estado["items_temporales"]) - 1:
-                filas_items.append(ft.Divider())
+                # El separador también con el mismo ancho, para que no cruce
+                # toda la tarjeta y quede más ancho que los ítems.
+                filas_items.append(ft.Container(content=ft.Divider(), width=ancho_campo()))
 
         def guardar_todos(e):
             falta_alguno = False
@@ -2568,7 +2581,7 @@ def main(page: ft.Page):
         boton_guardar = ft.ElevatedButton("Guardar", on_click=guardar_todos, width=ancho_campo(), height=50)
 
         titulo = ft.Text(
-            "¿Qué tan grande fue la porción de cada cosa?",
+            "¿Cuál fue el tamaño de cada porción?",
             size=18, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
         )
 
