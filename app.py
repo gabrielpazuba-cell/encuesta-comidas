@@ -2193,7 +2193,7 @@ def main(page: ft.Page):
     # ==========================================================
     def mostrar_instrucciones():
         texto_instrucciones = ft.Text(
-            "Instrucciones:\nA continuación te haremos algunas preguntas sobre todo lo que consumiste en las últimas 24 horas. Por favor, mirá este video antes de comenzar.",
+            "Instrucciones:\nA continuación te haremos algunas preguntas sobre todo lo que consumiste ayer. Por favor, mirá este video antes de comenzar.",
             text_align=ft.TextAlign.CENTER
         )
 
@@ -2305,7 +2305,7 @@ def main(page: ft.Page):
         verbo = VERBO_PASADO.get(comida_actual, f"tuviste {comida_actual.lower()}")
 
         titulo = ft.Text(
-            f"En las últimas 24hs, ¿{verbo}?",
+            f"¿Ayer {verbo}?",
             size=22, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
         )
 
@@ -2613,7 +2613,7 @@ def main(page: ft.Page):
         texto_pregunta = (
             "¿Comiste o tomaste algo más fuera de las comidas?"
             if ya_cargo_snack
-            else "En las últimas 24hs, ¿comiste o tomaste algo fuera de las comidas?"
+            else "Ayer, ¿comiste o tomaste algo fuera de las comidas?"
         )
 
         titulo = ft.Text(texto_pregunta, size=20, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
