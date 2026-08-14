@@ -1883,7 +1883,7 @@ def main(page: ft.Page):
     # Rango de edad del público objetivo del estudio: fuera de este rango no
     # se continúa con la encuesta (ver mostrar_no_apto más abajo).
     EDAD_MINIMA = 18
-    EDAD_MAXIMA = 22
+    EDAD_MAXIMA = 25
 
     # Preguntas de seguridad para "¿Olvidaste tu contraseña?": la app no
     # tiene un servicio de mails configurado, así que la recuperación se
