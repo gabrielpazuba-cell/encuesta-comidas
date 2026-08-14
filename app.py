@@ -1534,7 +1534,16 @@ def main(page: ft.Page):
         chips_por_fila = {}  # idx -> {"VERDADERO": Container, "FALSO": Container}
         fila_containers = {}  # idx -> Container (para resaltar errores)
 
-        ANCHO_COL = 85
+        ANCHO_COL = 78
+        # Ancho fijo de la tabla: sin esto, en una pantalla ancha la fila se
+        # estira a lo largo de toda la tarjeta y las casillas quedan lejísimos
+        # del enunciado, que es justo lo que se quiere evitar.
+        ANCHO_TABLA = ancho_campo(560)
+
+        # Filas alternadas en dos tonos, para poder seguir el renglón sin
+        # perderse al pasar del enunciado a las casillas.
+        def color_de_fila(i):
+            return ft.Colors.GREY_100 if i % 2 else ft.Colors.WHITE
 
         def actualizar_chips_fila(idx):
             seleccionado = respuestas.get(idx)
@@ -1546,7 +1555,9 @@ def main(page: ft.Page):
                     size=22,
                 )
             if seleccionado:
-                fila_containers[idx].bgcolor = None
+                # Vuelve a su color alternado, no a "sin color": si no, la fila
+                # que se acaba de responder rompería el rayado.
+                fila_containers[idx].bgcolor = color_de_fila(idx)
             page.update()
 
         def on_chip(e, idx, opcion):
@@ -1554,16 +1565,28 @@ def main(page: ft.Page):
             actualizar_chips_fila(idx)
 
         enviando = {"valor": False}
+        texto_faltan = ft.Text("", color=ft.Colors.RED_700, size=13, text_align=ft.TextAlign.CENTER)
 
-        cabecera = ft.Row([
-            ft.Container(expand=True),
-            ft.Text("VERDADERO", size=11, weight=ft.FontWeight.BOLD,
-                    width=ANCHO_COL, text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700),
-            ft.Text("FALSO", size=11, weight=ft.FontWeight.BOLD,
-                    width=ANCHO_COL, text_align=ft.TextAlign.CENTER, color=ft.Colors.GREY_700),
-        ], spacing=8)
+        # Cabecera: queda FUERA de la lista que scrollea, así el par
+        # VERDADERO / FALSO sigue a la vista mientras se baja por la encuesta.
+        cabecera = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Container(expand=True),
+                    ft.Text("VERDADERO", size=11, weight=ft.FontWeight.BOLD,
+                            width=ANCHO_COL, text_align=ft.TextAlign.CENTER, color=ft.Colors.BLUE_900),
+                    ft.Text("FALSO", size=11, weight=ft.FontWeight.BOLD,
+                            width=ANCHO_COL, text_align=ft.TextAlign.CENTER, color=ft.Colors.BLUE_900),
+                ],
+                spacing=8,
+            ),
+            width=ANCHO_TABLA,
+            padding=ft.padding.symmetric(vertical=8, horizontal=6),
+            bgcolor=ft.Colors.BLUE_50,
+            border_radius=6,
+        )
 
-        filas = [cabecera, ft.Divider()]
+        filas = []
         for i, afirmacion in enumerate(AFIRMACIONES_INICIALES):
             chips_fila = {}
             chips_controles = []
@@ -1589,13 +1612,25 @@ def main(page: ft.Page):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=8,
                 ),
-                padding=ft.padding.symmetric(vertical=8, horizontal=4),
+                width=ANCHO_TABLA,
+                padding=ft.padding.symmetric(vertical=9, horizontal=6),
                 border_radius=6,
+                bgcolor=color_de_fila(i),
             )
             fila_containers[i] = fila_container
             filas.append(fila_container)
-            if i < len(AFIRMACIONES_INICIALES) - 1:
-                filas.append(ft.Divider(height=1, color=ft.Colors.GREY_200))
+
+        # Alto de la zona que scrollea: lo que queda de pantalla después del
+        # título, la cabecera y el botón. El mínimo evita que quede una
+        # ventanita inusable en pantallas muy bajas.
+        alto_lista = max(240, int((page.height or 800) - 320))
+        lista_afirmaciones = ft.Column(
+            filas,
+            spacing=2,
+            scroll=ft.ScrollMode.AUTO,
+            height=alto_lista,
+            width=ANCHO_TABLA,
+        )
 
         def guardar_encuesta_inicial(e):
             if enviando["valor"]:
@@ -1603,9 +1638,18 @@ def main(page: ft.Page):
             falta = [i for i in range(len(AFIRMACIONES_INICIALES)) if i not in respuestas]
             if falta:
                 for i in falta:
-                    fila_containers[i].bgcolor = ft.Colors.RED_50
+                    fila_containers[i].bgcolor = ft.Colors.RED_100
+                # El aviso va acá abajo, fuera de la zona que scrollea: las
+                # filas que faltan pueden haber quedado fuera de la vista y el
+                # rojo solo pasaría desapercibido.
+                texto_faltan.value = (
+                    "Te falta responder 1 afirmación (marcada en rojo)."
+                    if len(falta) == 1
+                    else f"Te faltan responder {len(falta)} afirmaciones (marcadas en rojo)."
+                )
                 page.update()
                 return
+            texto_faltan.value = ""
 
             enviando["valor"] = True
             boton_continuar.disabled = True
@@ -1649,7 +1693,15 @@ def main(page: ft.Page):
             size=13, color=ft.Colors.GREY_600, text_align=ft.TextAlign.CENTER,
         )
 
-        pantalla(titulo, subtitulo, ft.Divider(), *filas, boton_continuar, mostrar_volver=False)
+        pantalla(
+            titulo,
+            subtitulo,
+            cabecera,
+            lista_afirmaciones,
+            texto_faltan,
+            boton_continuar,
+            mostrar_volver=False,
+        )
 
     def mostrar_dashboard():
         # Corte de participación: se chequea acá porque el menú es el paso
