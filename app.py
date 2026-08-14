@@ -9,6 +9,7 @@ import os
 import hashlib
 from datetime import datetime, timedelta, timezone
 from datetime import time as time_cls
+from urllib.parse import quote
 from flet.auth.providers import GoogleOAuthProvider
 
 # La habilitación diaria de la encuesta (y la hora que se guarda en cada
@@ -51,6 +52,10 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URL = os.environ.get("GOOGLE_REDIRECT_URL", "")  # ej: https://tu-app.onrender.com/oauth_callback
 
 COMIDAS_DEL_DIA = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+
+# Dirección a la que escriben los participantes desde el botón "Contacto".
+EMAIL_CONTACTO = "gamification.utdt@gmail.com"
+ASUNTO_CONTACTO = "Consulta - Encuesta de Comidas"
 
 # Límites de participación en el estudio. Cuando se alcanza cualquiera de los
 # dos, la persona ya no puede completar más encuestas ni entrar al resto de la
@@ -750,6 +755,21 @@ def main(page: ft.Page):
 
         threading.Thread(target=loop, daemon=True).start()
 
+    # Botón de contacto: abre el programa de correo de la persona con el
+    # destinatario y el asunto ya puestos. Se usa en el login y en el menú
+    # principal, así siempre tienen a mano cómo escribirnos.
+    def abrir_contacto(e=None):
+        asunto = quote(ASUNTO_CONTACTO)
+        page.launch_url(f"mailto:{EMAIL_CONTACTO}?subject={asunto}")
+
+    def boton_contacto():
+        return ft.TextButton(
+            "Contacto",
+            icon=ft.Icons.MAIL_OUTLINE,
+            on_click=abrir_contacto,
+            tooltip=f"Escribinos a {EMAIL_CONTACTO}",
+        )
+
     # ==========================================================
     # PANTALLA 1: LOGIN / REGISTRO POR EMAIL
     # ----------------------------------------------------------
@@ -1026,6 +1046,7 @@ def main(page: ft.Page):
             texto_error,
             boton_ingresar,
             ft.TextButton("¿Olvidaste tu contraseña?", on_click=lambda _: ir_a(mostrar_recuperar_paso1)),
+            boton_contacto(),
         ])
 
         pantalla(*controles)
@@ -1831,6 +1852,7 @@ def main(page: ft.Page):
             boton_comenzar,
             boton_resumen,
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            boton_contacto(),
             ft.TextButton("Cerrar sesión", on_click=cerrar_sesion),
         )
 
