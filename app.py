@@ -763,16 +763,25 @@ def main(page: ft.Page):
     # botón está roto. Por eso primero mostramos un cartel con la dirección
     # a la vista, con la opción de copiarla o de intentar abrir el correo.
     def abrir_contacto(e=None):
-        aviso = ft.Text("", size=12, color=ft.Colors.GREEN_700)
+        aviso = ft.Text("", size=12, color=ft.Colors.GREEN_700, text_align=ft.TextAlign.CENTER)
+        asunto = quote(ASUNTO_CONTACTO)
 
         def cerrar(_=None):
             page.pop_dialog()
 
-        def intentar_abrir_correo(_=None):
+        def abrir_gmail(_=None):
+            # Redactor de Gmail en el navegador. No depende de que haya un
+            # programa de correo instalado, que es lo que hace fallar al
+            # "mailto" en muchas computadoras de escritorio.
+            page.launch_url(
+                f"https://mail.google.com/mail/?view=cm&fs=1&to={EMAIL_CONTACTO}&su={asunto}"
+            )
+
+        def abrir_programa_correo(_=None):
             # UrlTarget.SELF: navegando en la misma pestaña, el navegador le
-            # pasa el "mailto" al sistema. Abriéndolo en una pestaña nueva,
-            # varios navegadores lo bloquean o abren una pestaña en blanco.
-            asunto = quote(ASUNTO_CONTACTO)
+            # pasa el "mailto" al sistema. En una pestaña nueva varios lo
+            # bloquean. Igual, si no hay programa de correo asociado, no va a
+            # pasar nada: para eso están las otras dos opciones.
             page.launch_url(
                 f"mailto:{EMAIL_CONTACTO}?subject={asunto}",
                 web_popup_window_name=ft.UrlTarget.SELF,
@@ -780,9 +789,10 @@ def main(page: ft.Page):
 
         async def copiar(_=None):
             await page.clipboard.set(EMAIL_CONTACTO)
-            aviso.value = "¡Copiada! Ya la podés pegar en tu correo."
+            aviso.value = "¡Dirección copiada! Ya la podés pegar donde quieras."
             page.update()
 
+        ancho_boton = 260
         page.show_dialog(ft.AlertDialog(
             title=ft.Text("Contacto"),
             content=ft.Column(
@@ -795,16 +805,32 @@ def main(page: ft.Page):
                             color=ft.Colors.BLUE_800, selectable=True,
                         )
                     ),
+                    ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
+                    ft.ElevatedButton(
+                        "Escribir desde Gmail",
+                        icon=ft.Icons.OPEN_IN_NEW,
+                        on_click=abrir_gmail,
+                        width=ancho_boton,
+                    ),
+                    ft.OutlinedButton(
+                        "Copiar dirección",
+                        icon=ft.Icons.CONTENT_COPY,
+                        on_click=copiar,
+                        width=ancho_boton,
+                    ),
+                    ft.TextButton(
+                        "Abrir mi programa de correo",
+                        icon=ft.Icons.MAIL_OUTLINE,
+                        on_click=abrir_programa_correo,
+                        width=ancho_boton,
+                    ),
                     aviso,
                 ],
                 tight=True,
-                spacing=10,
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            actions=[
-                ft.TextButton("Copiar dirección", icon=ft.Icons.CONTENT_COPY, on_click=copiar),
-                ft.TextButton("Abrir mi correo", icon=ft.Icons.MAIL_OUTLINE, on_click=intentar_abrir_correo),
-                ft.TextButton("Cerrar", on_click=cerrar),
-            ],
+            actions=[ft.TextButton("Cerrar", on_click=cerrar)],
         ))
 
     def boton_contacto():
