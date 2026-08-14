@@ -755,12 +755,57 @@ def main(page: ft.Page):
 
         threading.Thread(target=loop, daemon=True).start()
 
-    # Botón de contacto: abre el programa de correo de la persona con el
-    # destinatario y el asunto ya puestos. Se usa en el login y en el menú
-    # principal, así siempre tienen a mano cómo escribirnos.
+    # Botón de contacto: se usa en el login y en el menú principal.
+    #
+    # No alcanza con abrir un enlace "mailto" y listo: si la persona no tiene
+    # un programa de correo asociado en su navegador (muy común en una compu
+    # de escritorio), al tocarlo no pasa absolutamente nada y parece que el
+    # botón está roto. Por eso primero mostramos un cartel con la dirección
+    # a la vista, con la opción de copiarla o de intentar abrir el correo.
     def abrir_contacto(e=None):
-        asunto = quote(ASUNTO_CONTACTO)
-        page.launch_url(f"mailto:{EMAIL_CONTACTO}?subject={asunto}")
+        aviso = ft.Text("", size=12, color=ft.Colors.GREEN_700)
+
+        def cerrar(_=None):
+            page.pop_dialog()
+
+        def intentar_abrir_correo(_=None):
+            # UrlTarget.SELF: navegando en la misma pestaña, el navegador le
+            # pasa el "mailto" al sistema. Abriéndolo en una pestaña nueva,
+            # varios navegadores lo bloquean o abren una pestaña en blanco.
+            asunto = quote(ASUNTO_CONTACTO)
+            page.launch_url(
+                f"mailto:{EMAIL_CONTACTO}?subject={asunto}",
+                web_popup_window_name=ft.UrlTarget.SELF,
+            )
+
+        async def copiar(_=None):
+            await page.clipboard.set(EMAIL_CONTACTO)
+            aviso.value = "¡Copiada! Ya la podés pegar en tu correo."
+            page.update()
+
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Contacto"),
+            content=ft.Column(
+                [
+                    ft.Text("Escribinos a esta dirección:"),
+                    ft.SelectionArea(
+                        content=ft.Text(
+                            EMAIL_CONTACTO,
+                            size=16, weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.BLUE_800, selectable=True,
+                        )
+                    ),
+                    aviso,
+                ],
+                tight=True,
+                spacing=10,
+            ),
+            actions=[
+                ft.TextButton("Copiar dirección", icon=ft.Icons.CONTENT_COPY, on_click=copiar),
+                ft.TextButton("Abrir mi correo", icon=ft.Icons.MAIL_OUTLINE, on_click=intentar_abrir_correo),
+                ft.TextButton("Cerrar", on_click=cerrar),
+            ],
+        ))
 
     def boton_contacto():
         return ft.TextButton(
