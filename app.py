@@ -9,7 +9,6 @@ import os
 import hashlib
 from datetime import datetime, timedelta, timezone
 from datetime import time as time_cls
-from urllib.parse import quote
 from flet.auth.providers import GoogleOAuthProvider
 
 # La habilitación diaria de la encuesta (y la hora que se guarda en cada
@@ -55,7 +54,6 @@ COMIDAS_DEL_DIA = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
 # Dirección a la que escriben los participantes desde el botón "Contacto".
 EMAIL_CONTACTO = "gamification.utdt@gmail.com"
-ASUNTO_CONTACTO = "Consulta - Encuesta de Comidas"
 
 # Límites de participación en el estudio. Cuando se alcanza cualquiera de los
 # dos, la persona ya no puede completar más encuestas ni entrar al resto de la
@@ -763,71 +761,66 @@ def main(page: ft.Page):
     # botón está roto. Por eso primero mostramos un cartel con la dirección
     # a la vista, con la opción de copiarla o de intentar abrir el correo.
     def abrir_contacto(e=None):
+        # Solo mostrar la dirección y ofrecer copiarla.
+        #
+        # No se puede abrir el correo desde acá: en Flet el clic viaja al
+        # servidor y la orden de abrir el enlace vuelve desde ahí, así que
+        # para el navegador deja de ser "algo que tocó el usuario" y bloquea
+        # tanto los mailto como las pestañas nuevas. Probado sin éxito en
+        # computadora y en celular.
         aviso = ft.Text("", size=12, color=ft.Colors.GREEN_700, text_align=ft.TextAlign.CENTER)
-        asunto = quote(ASUNTO_CONTACTO)
 
         def cerrar(_=None):
             page.pop_dialog()
 
-        def abrir_gmail(_=None):
-            # Redactor de Gmail en el navegador. No depende de que haya un
-            # programa de correo instalado, que es lo que hace fallar al
-            # "mailto" en muchas computadoras de escritorio.
-            page.launch_url(
-                f"https://mail.google.com/mail/?view=cm&fs=1&to={EMAIL_CONTACTO}&su={asunto}"
-            )
-
-        def abrir_programa_correo(_=None):
-            # UrlTarget.SELF: navegando en la misma pestaña, el navegador le
-            # pasa el "mailto" al sistema. En una pestaña nueva varios lo
-            # bloquean. Igual, si no hay programa de correo asociado, no va a
-            # pasar nada: para eso están las otras dos opciones.
-            page.launch_url(
-                f"mailto:{EMAIL_CONTACTO}?subject={asunto}",
-                web_popup_window_name=ft.UrlTarget.SELF,
-            )
-
         async def copiar(_=None):
             await page.clipboard.set(EMAIL_CONTACTO)
-            aviso.value = "¡Dirección copiada! Ya la podés pegar donde quieras."
+            aviso.value = "¡Copiada! Pegala en tu correo."
             page.update()
 
-        ancho_boton = 260
         page.show_dialog(ft.AlertDialog(
             title=ft.Text("Contacto"),
             content=ft.Column(
                 [
-                    ft.Text("Escribinos a esta dirección:"),
-                    ft.SelectionArea(
-                        content=ft.Text(
-                            EMAIL_CONTACTO,
-                            size=16, weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.BLUE_800, selectable=True,
-                        )
+                    ft.Text(
+                        "Ante cualquier duda o problema, escribinos a:",
+                        text_align=ft.TextAlign.CENTER,
                     ),
-                    ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
-                    ft.ElevatedButton(
-                        "Escribir desde Gmail",
-                        icon=ft.Icons.OPEN_IN_NEW,
-                        on_click=abrir_gmail,
-                        width=ancho_boton,
+                    # La dirección va grande, en un recuadro y seleccionable:
+                    # en el celular se copia manteniéndola presionada, y en la
+                    # computadora se puede marcar con el mouse.
+                    ft.Container(
+                        content=ft.SelectionArea(
+                            content=ft.Text(
+                                EMAIL_CONTACTO,
+                                size=17,
+                                weight=ft.FontWeight.BOLD,
+                                color=ft.Colors.BLUE_800,
+                                selectable=True,
+                                text_align=ft.TextAlign.CENTER,
+                            )
+                        ),
+                        padding=14,
+                        bgcolor=ft.Colors.BLUE_50,
+                        border_radius=8,
+                        alignment=ft.Alignment.CENTER,
                     ),
                     ft.OutlinedButton(
                         "Copiar dirección",
                         icon=ft.Icons.CONTENT_COPY,
                         on_click=copiar,
-                        width=ancho_boton,
+                        width=250,
                     ),
-                    ft.TextButton(
-                        "Abrir mi programa de correo",
-                        icon=ft.Icons.MAIL_OUTLINE,
-                        on_click=abrir_programa_correo,
-                        width=ancho_boton,
+                    ft.Text(
+                        "También podés mantenerla presionada para seleccionarla y copiarla.",
+                        size=11,
+                        color=ft.Colors.GREY_600,
+                        text_align=ft.TextAlign.CENTER,
                     ),
                     aviso,
                 ],
                 tight=True,
-                spacing=8,
+                spacing=10,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             actions=[ft.TextButton("Cerrar", on_click=cerrar)],
