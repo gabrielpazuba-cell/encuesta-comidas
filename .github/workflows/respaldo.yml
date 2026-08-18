@@ -1,0 +1,47 @@
+name: Respaldo diario de la base
+
+# 06:00 UTC = 03:00 de la madrugada en Argentina (UTC-3). Se elige esa hora
+# para que el respaldo tome el día anterior ya cerrado, y para no pisarse
+# con los recordatorios (que salen 13:00 UTC). El cron de GitHub siempre va
+# en UTC y no ajusta por horario de verano: si cambia el huso, corregir a mano.
+#
+# OJO: GitHub deshabilita los workflows programados de un repositorio que
+# pasa 60 días sin ninguna actividad. Si el estudio queda quieto mucho
+# tiempo, hay que volver a habilitarlo desde la pestaña Actions.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  # Permite dispararlo a mano desde la pestaña Actions, con la opción de
+  # armar el respaldo sin mandar el mail (para probar que funciona).
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Modo prueba (arma el respaldo pero NO manda el mail)"
+        type: boolean
+        default: true
+      destino:
+        description: "Mandar a otra dirección (dejá vacío para la del estudio)"
+        type: string
+        default: ""
+
+jobs:
+  respaldar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Respaldar la base y mandarla por mail
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          DESTINO_RESPALDO: ${{ inputs.destino }}
+        run: python respaldo_base.py
