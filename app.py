@@ -986,6 +986,20 @@ def main(page: ft.Page):
             client_secret=GOOGLE_CLIENT_SECRET,
             redirect_url=GOOGLE_REDIRECT_URL,
         )
+        # Obligar a Google a mostrar SIEMPRE el selector de cuenta.
+        #
+        # Si no se le aclara nada, Google decide solo: cuando en el
+        # navegador hay una sola cuenta conectada y ya dio permiso antes,
+        # entra derecho sin preguntar. En una compu compartida (o en el
+        # celular de otra persona) eso registra al participante con la
+        # cuenta equivocada, y después no hay forma de darse cuenta
+        # mirando los datos.
+        #
+        # GoogleOAuthProvider no expone este parámetro en su constructor,
+        # pero la clase base sí lo soporta: authorization_params se vuelca
+        # como query params en la URL de autorización (ver
+        # flet/auth/authorization_service.py).
+        google_provider.authorization_params = {"prompt": "select_account"}
 
     def _al_iniciar_sesion_google(e):
         if e.error:
