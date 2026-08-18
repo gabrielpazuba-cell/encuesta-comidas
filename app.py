@@ -468,6 +468,12 @@ def emoji_para_item(nombre_item, categoria):
 # ==========================================================
 FONDO = None                # Ej: "fondo.png"  -> fondo de todas las pantallas
 
+# Logos institucionales (ESN + Laboratorio de Neurociencia Di Tella), que van
+# en la pantalla de inicio y en el menú principal. El PNG tiene fondo
+# transparente, así que se apoya bien sobre la tarjeta blanca de las
+# pantallas. Poniéndolo en None, la app sigue andando sin mostrarlos.
+LOGOS = "logos_esn_lndt.png"
+
 
 # PBKDF2-HMAC-SHA256 con sal aleatoria por usuario y 600.000 iteraciones:
 # recomendación vigente de OWASP (Password Storage Cheat Sheet) para que
@@ -834,6 +840,23 @@ def main(page: ft.Page):
             tooltip=f"Escribinos a {EMAIL_CONTACTO}",
         )
 
+    def logos_institucionales(ancho=None):
+        """Los logos de ESN y del Laboratorio de Neurociencia Di Tella.
+
+        Devuelve una LISTA para poder desparramarla con * dentro de
+        pantalla(): si LOGOS quedara en None, no agrega nada y las pantallas
+        siguen funcionando igual que antes.
+        """
+        if not LOGOS:
+            return []
+        return [
+            ft.Image(
+                src=LOGOS,
+                width=ancho or ancho_campo(),
+                fit=ft.BoxFit.CONTAIN,
+            )
+        ]
+
     # ==========================================================
     # PANTALLA 1: LOGIN / REGISTRO POR EMAIL
     # ----------------------------------------------------------
@@ -1104,7 +1127,10 @@ def main(page: ft.Page):
         texto_error = ft.Text("", color=ft.Colors.RED)
         boton_ingresar = ft.ElevatedButton("Ingresar", on_click=iniciar_sesion, width=ancho_campo(), height=50)
 
-        controles = [ft.Text("Bienvenido", size=30, weight=ft.FontWeight.BOLD)]
+        controles = [
+            *logos_institucionales(),
+            ft.Text("Bienvenido", size=30, weight=ft.FontWeight.BOLD),
+        ]
 
         if google_provider:
             controles.append(
@@ -1866,7 +1892,7 @@ def main(page: ft.Page):
                 )
 
             boton_comenzar.disabled = False
-            boton_comenzar.text = "Completar encuesta de hoy"
+            boton_comenzar.text = "Comenzar"
 
             if not hizo_previas:
                 historial.clear()
@@ -1893,7 +1919,7 @@ def main(page: ft.Page):
                 ir_a_pregunta_o_items()
 
         boton_comenzar = ft.ElevatedButton(
-            "Completar encuesta de hoy" if habilitado else "Ya completaste el registro de hoy",
+            "Comenzar" if habilitado else "Ya completaste el registro de hoy",
             on_click=comenzar_encuesta if habilitado else None,
             disabled=not habilitado,
             width=ancho_campo(),
@@ -1932,6 +1958,10 @@ def main(page: ft.Page):
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
             boton_contacto(),
             ft.TextButton("Cerrar sesión", on_click=cerrar_sesion),
+            # Los logos van al pie: si fueran arriba empujarían el botón de
+            # empezar la encuesta fuera de la pantalla en un celular chico.
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            *logos_institucionales(ancho=220),
         )
 
         if not habilitado:
