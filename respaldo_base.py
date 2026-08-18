@@ -33,6 +33,7 @@ contenido de las filas ni direcciones de participantes: solo cantidades y
 tamaños. Los datos viajan únicamente adentro del mail.
 """
 
+import ast
 import csv
 import io
 import os
@@ -101,6 +102,78 @@ def armar_csv(filas):
     return salida.getvalue()
 
 
+def leer_afirmaciones():
+    """Saca los enunciados de la encuesta inicial de app.py, SIN importarlo.
+
+    Los textos de las afirmaciones viven en el código (AFIRMACIONES_INICIALES
+    en app.py), no en la base: en Supabase de cada respuesta solo queda
+    'afirmacion_07 = VERDADERO'. Sin el texto, la planilla no se puede
+    analizar sin tener el código al lado.
+
+    Se leen con ast, que entiende el archivo pero no lo ejecuta: importar
+    app.py desde acá arrancaría la aplicación entera.
+    """
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            arbol = ast.parse(f.read())
+    except Exception as e:
+        print(f"  ATENCION: no se pudo leer app.py para los enunciados: {e!r}")
+        return []
+
+    for nodo in arbol.body:
+        if isinstance(nodo, ast.Assign) and any(
+            isinstance(d, ast.Name) and d.id == "AFIRMACIONES_INICIALES"
+            for d in nodo.targets
+        ):
+            return ast.literal_eval(nodo.value)
+
+    print("  ATENCION: no se encontró AFIRMACIONES_INICIALES en app.py.")
+    return []
+
+
+def armar_encuesta_inicial_legible(filas, afirmaciones):
+    """Planilla aparte con la encuesta de verdadero/falso ya legible.
+
+    Cruza el número guardado en la base ('afirmacion_07') con el texto real
+    de la afirmación, para que la planilla se entienda sola.
+    """
+    legibles = []
+    for fila in filas:
+        if fila.get("tipo_registro") != "encuesta_inicial":
+            continue
+
+        nombre = fila.get("item_nombre") or ""
+        numero = None
+        if nombre.startswith("afirmacion_"):
+            try:
+                numero = int(nombre.rsplit("_", 1)[-1])
+            except ValueError:
+                numero = None
+
+        # Si mañana se agregan afirmaciones nuevas al código, las respuestas
+        # viejas pueden quedar apuntando a un número que ya no existe. En ese
+        # caso se deja el texto vacío en vez de romper el respaldo entero.
+        texto = ""
+        if numero is not None and 1 <= numero <= len(afirmaciones):
+            texto = afirmaciones[numero - 1]
+
+        legibles.append(
+            {
+                "usuario": fila.get("usuario"),
+                "fecha": fila.get("fecha"),
+                "numero": numero if numero is not None else nombre,
+                "afirmacion": texto,
+                "respuesta": fila.get("item_detalle"),
+            }
+        )
+
+    legibles.sort(
+        key=lambda r: (str(r["usuario"]), r["numero"] if isinstance(r["numero"], int) else 0)
+    )
+    return legibles
+
+
 def armar_zip(csvs_por_tabla):
     """Mete todos los CSV en un solo archivo comprimido, en memoria."""
     buffer = io.BytesIO()
@@ -162,6 +235,7 @@ def main():
         print("MODO PRUEBA: se arma el respaldo pero NO se manda por mail.\n")
 
     csvs = {}
+    datos = {}
     lineas_resumen = []
     for tabla in TABLAS:
         try:
@@ -174,9 +248,25 @@ def main():
         # nueva), pero sí algo que conviene mirar, así que se avisa fuerte.
         if not filas:
             print(f"  ATENCION: la tabla '{tabla}' volvió VACIA.")
+        datos[tabla] = filas
         csvs[tabla] = armar_csv(filas)
         print(f"  {tabla}: {len(filas)} filas")
         lineas_resumen.append(f"  - {tabla}: {len(filas)} filas")
+
+    # Planilla extra: la encuesta inicial de verdadero/falso, con el texto de
+    # cada afirmación al lado de la respuesta. Las dos planillas de arriba son
+    # la copia fiel de las tablas y se dejan intactas; esta es para poder
+    # leerla y analizarla sin tener el código abierto.
+    legibles = armar_encuesta_inicial_legible(
+        datos.get("encuesta_comidas", []), leer_afirmaciones()
+    )
+    if legibles:
+        csvs["encuesta_inicial_legible"] = armar_csv(legibles)
+        print(f"  encuesta_inicial_legible: {len(legibles)} respuestas con su enunciado")
+        lineas_resumen.append(
+            f"  - encuesta_inicial_legible: {len(legibles)} respuestas de la encuesta"
+            " de verdadero/falso, con el texto de cada afirmación"
+        )
 
     contenido = armar_zip(csvs)
     nombre_archivo = f"respaldo-encuesta-comidas-{hoy}.zip"
