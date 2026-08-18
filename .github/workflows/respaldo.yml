@@ -11,14 +11,21 @@ name: Respaldo diario de la base
 on:
   schedule:
     - cron: "0 6 * * *"
-  # Permite dispararlo a mano desde la pestaña Actions, con la opción de
-  # armar el respaldo sin mandar el mail (para probar que funciona).
+  # Permite dispararlo a mano desde la pestaña Actions.
+  #
+  # La casilla de modo prueba arranca DESTILDADA a propósito: GitHub reinicia
+  # estos campos a su valor por defecto cada vez que se abre el panel, no
+  # recuerda lo que se eligió la vez anterior. Con el default en true había
+  # que acordarse de destildarla en cada corrida, y era fácil terminar
+  # ejecutando una prueba creyendo que se mandaba el respaldo de verdad.
+  # Ahora el botón hace lo obvio: mandar el respaldo. Para probar sin enviar,
+  # tildarla a mano.
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Modo prueba (arma el respaldo pero NO manda el mail)"
         type: boolean
-        default: true
+        default: false
       destino:
         description: "Mandar a otra dirección (dejá vacío para la del estudio)"
         type: string
