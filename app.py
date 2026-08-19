@@ -512,6 +512,38 @@ AFIRMACIONES_INICIALES = [
 ]
 
 
+# Texto del botón que arranca el registro diario, en el menú principal.
+TEXTO_BOTON_COMENZAR = "COMENZAR EL REGISTRO ALIMENTARIO EN LÍNEA"
+
+# Consentimiento informado: aparece una única vez, la primera vez que la
+# persona toca el botón de comenzar, antes de cualquier otra sección.
+#
+# El texto va TEXTUAL como lo entregó el equipo de investigación. Es un
+# documento que puede haber pasado por un comité de ética, así que no se
+# reescribe, ni se resume, ni se le corrigen erratas por razones de diseño:
+# si no entra en la pantalla, se arregla el layout, no el texto.
+CONSENTIMIENTO_PARRAFOS = [
+    # Corregido a pedido de Gabriel (18/08/2026): el original decía "de el
+    # presente estudio". Es el único cambio sobre el texto entregado.
+    "Acepto participar del presente estudio que dura 5 días durante los que "
+    "completaré diariamente un registro en línea indicando los alimentos y "
+    "bebidas que consumí (el día anterior). Cada registro toma aproximadamente "
+    "15 minutos (esto puede variar para cada persona según el contenido a "
+    "escribir cada día) y, solo durante este período, acepto recibir "
+    "recordatorios diarios por correo electrónico que me ayuden a completar la "
+    "tarea.",
+    "Entiendo que mi participación es voluntaria y que puedo dejar el estudio "
+    "en cualquier momento, sin consecuencias. La información que proporcione "
+    "será tratada de manera confidencial y utilizada únicamente con fines de "
+    "investigación.",
+    "Al aceptar, confirmo que soy mayor de 18 años y que he leído y comprendido "
+    "esta información.",
+]
+
+CONSENTIMIENTO_ACEPTA = "ACEPTA"
+CONSENTIMIENTO_RECHAZA = "NO ACEPTA"
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
@@ -933,10 +965,18 @@ def main(page: ft.Page):
     PILOTO_EMAIL = "gaby.piloto@test.local"
 
     def secciones_iniciales_hechas(email):
-        # Devuelve (hizo_preguntas_previas, hizo_encuesta_inicial) en una
-        # sola consulta. Si la red falla asumimos que ya están hechas: es
-        # preferible dejar entrar a la encuesta que hacer repetir una
-        # sección que la persona ya completó.
+        # Devuelve (dio_consentimiento, hizo_preguntas_previas,
+        # hizo_encuesta_inicial) en una sola consulta.
+        #
+        # Si la red falla, para las dos secciones de preguntas asumimos que ya
+        # están hechas: es preferible dejar entrar a la encuesta que hacer
+        # repetir una sección que la persona ya completó.
+        #
+        # Con el consentimiento el criterio es el OPUESTO a propósito: ante la
+        # duda se vuelve a pedir. Dejar entrar a alguien sin que quede
+        # registrado su consentimiento invalidaría su participación en el
+        # estudio; volver a mostrarle la pantalla, en el peor caso, le hace
+        # tildar una opción de nuevo.
         #
         # OJO: esto bloquea. Llamarla siempre desde un handler async con
         # asyncio.to_thread, nunca directo en un handler sincrónico.
@@ -946,18 +986,22 @@ def main(page: ft.Page):
                 headers=HEADERS,
                 params={
                     "usuario": f"eq.{email}",
-                    "tipo_registro": "in.(preguntas_previas,encuesta_inicial)",
+                    "tipo_registro": "in.(consentimiento,preguntas_previas,encuesta_inicial)",
                     "select": "tipo_registro",
                 },
                 timeout=8,
             )
             if resp.ok:
                 tipos = {r.get("tipo_registro") for r in resp.json()}
-                return ("preguntas_previas" in tipos, "encuesta_inicial" in tipos)
+                return (
+                    "consentimiento" in tipos,
+                    "preguntas_previas" in tipos,
+                    "encuesta_inicial" in tipos,
+                )
             print(f"Error Supabase al verificar secciones iniciales [{resp.status_code}]: {resp.text}")
         except Exception as e:
             print("Error de red al verificar secciones iniciales:", repr(e))
-        return (True, True)
+        return (False, True, True)
 
     def entrar_con_usuario(usuario, local=False):
         estado["email"] = usuario["email"]
@@ -1525,6 +1569,152 @@ def main(page: ft.Page):
         ir_a(mostrar_login)
 
     # ==========================================================
+    # PANTALLA: CONSENTIMIENTO INFORMADO
+    # ----------------------------------------------------------
+    # Es lo PRIMERO que ve la persona después de tocar el botón de
+    # comenzar, y aparece una única vez. La respuesta se guarda en
+    # encuesta_comidas con tipo_registro="consentimiento", igual que
+    # el resto de las secciones que se hacen una sola vez, así que no
+    # hizo falta agregar ninguna columna nueva en Supabase.
+    #
+    # Se guarda tanto el "acepto" como el "no acepto": para un estudio
+    # importa poder mostrar quién decidió qué y cuándo.
+    #
+    # No hay botón de volver: la persona tiene que elegir una opción.
+    # ==========================================================
+    def mostrar_consentimiento():
+        eleccion = {"valor": None}
+        enviando = {"valor": False}
+
+        def al_elegir(e):
+            # El botón arranca deshabilitado, así que no hace falta ningún
+            # cartel de "elegí una opción": no se puede seguir sin elegir.
+            eleccion["valor"] = e.control.value
+            boton_continuar.disabled = False
+            page.update()
+
+        opciones = ft.RadioGroup(
+            content=ft.Column(
+                [
+                    ft.Radio(value=CONSENTIMIENTO_ACEPTA, label="Acepto participar"),
+                    ft.Radio(value=CONSENTIMIENTO_RECHAZA, label="No acepto participar"),
+                ],
+                spacing=4,
+            ),
+            on_change=al_elegir,
+        )
+
+        async def confirmar(e):
+            if enviando["valor"] or not eleccion["valor"]:
+                return
+
+            enviando["valor"] = True
+            boton_continuar.disabled = True
+            page.update()
+
+            registro = {
+                "usuario": estado["email"],
+                "fecha": ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S"),
+                "tipo_registro": "consentimiento",
+                "momento_dia": "consentimiento",
+                "item_nombre": "consentimiento_informado",
+                "item_detalle": eleccion["valor"],
+            }
+            exito, _ = await asyncio.to_thread(enviar_o_actualizar_registro, registro, None)
+
+            enviando["valor"] = False
+            boton_continuar.disabled = False
+
+            # Si no se pudo guardar, NO se avanza: quedaría alguien haciendo
+            # la encuesta sin constancia de haber aceptado.
+            if not exito:
+                page.update()
+                mostrar_error_guardado()
+                return
+
+            if eleccion["valor"] == CONSENTIMIENTO_RECHAZA:
+                historial.clear()
+                ir_a(mostrar_consentimiento_rechazado)
+                return
+
+            # Aceptó: sigue por donde le corresponda. Quien ya tenía las otras
+            # secciones hechas (participantes que empezaron antes de que este
+            # consentimiento existiera) vuelve directo al menú.
+            historial.clear()
+            if not estado["preguntas_previas_completas"]:
+                ir_a(mostrar_preguntas_previas)
+            elif not estado["encuesta_inicial_completa"]:
+                ir_a(mostrar_encuesta_inicial)
+            else:
+                ir_a(mostrar_dashboard)
+
+        boton_continuar = ft.ElevatedButton(
+            "Continuar",
+            on_click=confirmar,
+            disabled=True,
+            width=ancho_campo(),
+            height=50,
+        )
+
+        parrafos = [
+            ft.Text(p, size=14, text_align=ft.TextAlign.JUSTIFY)
+            for p in CONSENTIMIENTO_PARRAFOS
+        ]
+
+        pantalla(
+            ft.Text(
+                "Consentimiento informado",
+                size=20,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Container(
+                content=ft.Column(parrafos, spacing=12),
+                padding=16,
+                bgcolor=ft.Colors.BLUE_50,
+                border_radius=10,
+            ),
+            ft.Divider(height=5, color=ft.Colors.TRANSPARENT),
+            opciones,
+            boton_continuar,
+            mostrar_volver=False,
+        )
+
+    def mostrar_consentimiento_rechazado():
+        # No se bloquea la cuenta a propósito: si la persona cambia de
+        # opinión, entra de nuevo, toca comenzar y vuelve a ver la pantalla
+        # de consentimiento.
+        pantalla(
+            ft.Text(
+                "Gracias por tu tiempo",
+                size=20,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Text(
+                "Indicaste que no querés participar del estudio, así que no vas "
+                "a completar ningún registro ni recibir recordatorios.",
+                size=14,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Text(
+                "Si cambiás de opinión, podés volver al menú y tocar el botón "
+                "de comenzar otra vez.",
+                size=13,
+                color=ft.Colors.GREY_700,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            ft.ElevatedButton(
+                "Volver al menú",
+                on_click=lambda _: ir_a(mostrar_dashboard),
+                width=ancho_campo(),
+                height=50,
+            ),
+            mostrar_volver=False,
+        )
+
+    # ==========================================================
     # PANTALLA: PREGUNTAS PREVIAS (antes de la checklist)
     # ----------------------------------------------------------
     # Aparece una única vez, justo antes de la checklist.
@@ -1881,18 +2071,30 @@ def main(page: ft.Page):
         # y la pantalla responde mientras se consulta.
         async def comenzar_encuesta(e):
             boton_comenzar.disabled = True
-            boton_comenzar.text = "Cargando..."
+            etiqueta_comenzar.value = "Cargando..."
             page.update()
 
             if estado["modo_local"]:
-                hizo_previas = hizo_inicial = True
+                dio_consentimiento = hizo_previas = hizo_inicial = True
             else:
-                hizo_previas, hizo_inicial = await asyncio.to_thread(
+                dio_consentimiento, hizo_previas, hizo_inicial = await asyncio.to_thread(
                     secciones_iniciales_hechas, estado["email"]
                 )
 
             boton_comenzar.disabled = False
-            boton_comenzar.text = "Comenzar"
+            etiqueta_comenzar.value = TEXTO_BOTON_COMENZAR
+
+            # Se guardan antes de derivar: la pantalla de consentimiento las
+            # usa para saber a qué sección mandar después de aceptar.
+            estado["preguntas_previas_completas"] = hizo_previas
+            estado["encuesta_inicial_completa"] = hizo_inicial
+
+            # El consentimiento va primero que todo: nada se pregunta ni se
+            # guarda antes de que la persona acepte participar.
+            if not dio_consentimiento:
+                historial.clear()
+                ir_a(mostrar_consentimiento)
+                return
 
             if not hizo_previas:
                 historial.clear()
@@ -1918,12 +2120,24 @@ def main(page: ft.Page):
             else:
                 ir_a_pregunta_o_items()
 
+        # El texto del botón va dentro de un ft.Text propio (en vez de usar el
+        # parámetro `text`) porque no entra en un renglón: así se parte en
+        # varias líneas centradas en vez de quedar cortado. El botón es más
+        # alto por lo mismo. La etiqueta se guarda aparte para poder cambiarle
+        # el texto mientras carga.
+        etiqueta_comenzar = ft.Text(
+            TEXTO_BOTON_COMENZAR if habilitado else "Ya completaste el registro de hoy",
+            size=14,
+            weight=ft.FontWeight.BOLD,
+            text_align=ft.TextAlign.CENTER,
+        )
+
         boton_comenzar = ft.ElevatedButton(
-            "Comenzar" if habilitado else "Ya completaste el registro de hoy",
+            content=etiqueta_comenzar,
             on_click=comenzar_encuesta if habilitado else None,
             disabled=not habilitado,
             width=ancho_campo(),
-            height=50,
+            height=70,
         )
 
         boton_resumen = ft.OutlinedButton(
