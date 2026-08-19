@@ -82,10 +82,20 @@ def traer_tabla(supabase_url, supabase_key, tabla):
         desde += FILAS_POR_PAGINA
 
 
-def armar_csv(filas):
-    """Convierte una lista de filas en el texto de un CSV."""
+def armar_csv(filas, columnas_si_vacio=None):
+    """Convierte una lista de filas en el texto de un CSV.
+
+    `columnas_si_vacio` sirve para las planillas que todavía no tienen datos
+    (por ejemplo la encuesta final, hasta que alguien complete las 5 cargas):
+    en vez de un archivo vacío, que en Excel no se entiende, deja al menos la
+    fila de encabezados para que se vea qué va a contener.
+    """
     if not filas:
-        return ""
+        if not columnas_si_vacio:
+            return ""
+        salida = io.StringIO()
+        csv.DictWriter(salida, fieldnames=columnas_si_vacio).writeheader()
+        return salida.getvalue()
 
     # Las columnas salen de recorrer todas las filas, no solo la primera:
     # si alguna fila tiene un campo que las demás no, igual se incluye.
@@ -102,15 +112,15 @@ def armar_csv(filas):
     return salida.getvalue()
 
 
-def leer_afirmaciones():
-    """Saca los enunciados de la encuesta inicial de app.py, SIN importarlo.
+def leer_lista_de_app(nombre_constante):
+    """Saca una lista de enunciados de app.py, SIN importarlo.
 
     Los textos de las afirmaciones viven en el código (AFIRMACIONES_INICIALES
-    en app.py), no en la base: en Supabase de cada respuesta solo queda
-    'afirmacion_07 = VERDADERO'. Sin el texto, la planilla no se puede
-    analizar sin tener el código al lado.
+    y AFIRMACIONES_CIERRE en app.py), no en la base: en Supabase de cada
+    respuesta solo queda 'afirmacion_07 = VERDADERO' o 'cierre_03 = 5'. Sin
+    el texto, la planilla no se puede analizar sin tener el código al lado.
 
-    Se leen con ast, que entiende el archivo pero no lo ejecuta: importar
+    Se lee con ast, que entiende el archivo pero no lo ejecuta: importar
     app.py desde acá arrancaría la aplicación entera.
     """
     ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
@@ -123,40 +133,42 @@ def leer_afirmaciones():
 
     for nodo in arbol.body:
         if isinstance(nodo, ast.Assign) and any(
-            isinstance(d, ast.Name) and d.id == "AFIRMACIONES_INICIALES"
+            isinstance(d, ast.Name) and d.id == nombre_constante
             for d in nodo.targets
         ):
             return ast.literal_eval(nodo.value)
 
-    print("  ATENCION: no se encontró AFIRMACIONES_INICIALES en app.py.")
+    print(f"  ATENCION: no se encontró {nombre_constante} en app.py.")
     return []
 
 
-def armar_encuesta_inicial_legible(filas, afirmaciones):
-    """Planilla aparte con la encuesta de verdadero/falso ya legible.
+def armar_planilla_de_escala(filas, tipo_registro, prefijo, enunciados):
+    """Planilla legible de una encuesta guardada como una fila por afirmación.
 
-    Cruza el número guardado en la base ('afirmacion_07') con el texto real
-    de la afirmación, para que la planilla se entienda sola.
+    Sirve igual para la encuesta inicial (verdadero/falso, item_nombre
+    'afirmacion_07') que para la de cierre (escala 1 a 7, 'cierre_03'):
+    cruza el número guardado con el texto real del enunciado.
     """
     legibles = []
     for fila in filas:
-        if fila.get("tipo_registro") != "encuesta_inicial":
+        if fila.get("tipo_registro") != tipo_registro:
             continue
 
         nombre = fila.get("item_nombre") or ""
         numero = None
-        if nombre.startswith("afirmacion_"):
+        if nombre.startswith(prefijo):
             try:
                 numero = int(nombre.rsplit("_", 1)[-1])
             except ValueError:
                 numero = None
 
-        # Si mañana se agregan afirmaciones nuevas al código, las respuestas
-        # viejas pueden quedar apuntando a un número que ya no existe. En ese
-        # caso se deja el texto vacío en vez de romper el respaldo entero.
+        # Si mañana se agregan o reordenan enunciados en el código, las
+        # respuestas viejas pueden quedar apuntando a un número que ya no
+        # existe. En ese caso se deja el texto vacío en vez de romper el
+        # respaldo entero.
         texto = ""
-        if numero is not None and 1 <= numero <= len(afirmaciones):
-            texto = afirmaciones[numero - 1]
+        if numero is not None and 1 <= numero <= len(enunciados):
+            texto = enunciados[numero - 1]
 
         legibles.append(
             {
@@ -172,6 +184,20 @@ def armar_encuesta_inicial_legible(filas, afirmaciones):
         key=lambda r: (str(r["usuario"]), r["numero"] if isinstance(r["numero"], int) else 0)
     )
     return legibles
+
+
+def armar_planilla_de_comidas(filas):
+    """Los registros diarios de comida, más el consentimiento.
+
+    Gabriel pidió que el consentimiento viaje en esta misma planilla. Se
+    conserva la columna `tipo_registro` para poder separarlo en un filtro:
+    las filas de consentimiento no son items consumidos y contarlas como
+    tales inflaría cualquier total.
+    """
+    TIPOS = ("consentimiento", "comida_hora", "item")
+    seleccionadas = [f for f in filas if f.get("tipo_registro") in TIPOS]
+    seleccionadas.sort(key=lambda f: (str(f.get("usuario")), str(f.get("fecha")), f.get("id") or 0))
+    return seleccionadas
 
 
 def armar_zip(csvs_por_tabla):
@@ -193,8 +219,15 @@ def armar_mail(remitente, destino, nombre_archivo, contenido_zip, resumen):
     mensaje.set_content(
         "Respaldo automático de la base de datos de la Encuesta de Comidas.\n\n"
         f"{resumen}\n"
-        "El archivo adjunto es un .zip con un CSV por tabla. Se abren con\n"
-        "Excel haciendo doble clic.\n\n"
+        "El adjunto es un .zip: descomprimilo y abrí cualquiera de las\n"
+        "planillas con Excel, haciendo doble clic.\n\n"
+        "  usuarios              -> los participantes y sus datos\n"
+        "  1-encuesta-inicial    -> la encuesta de verdadero/falso\n"
+        "  2-registros-de-comidas-> lo que comió cada uno los 5 días, y el\n"
+        "                           consentimiento (columna tipo_registro)\n"
+        "  3-encuesta-final      -> la encuesta de cierre, escala 1 a 7\n"
+        "  copia-completa-...    -> copia técnica de la tabla entera, para\n"
+        "                           restaurar la base si hiciera falta\n\n"
         "--\n"
         "Mail automático. Sale todos los días.\n"
         "Guardalo o dejalo en la casilla: mientras esté acá, hay una copia\n"
@@ -234,9 +267,7 @@ def main():
     if dry_run:
         print("MODO PRUEBA: se arma el respaldo pero NO se manda por mail.\n")
 
-    csvs = {}
     datos = {}
-    lineas_resumen = []
     for tabla in TABLAS:
         try:
             filas = traer_tabla(supabase_url, supabase_key, tabla)
@@ -249,24 +280,48 @@ def main():
         if not filas:
             print(f"  ATENCION: la tabla '{tabla}' volvió VACIA.")
         datos[tabla] = filas
-        csvs[tabla] = armar_csv(filas)
-        print(f"  {tabla}: {len(filas)} filas")
-        lineas_resumen.append(f"  - {tabla}: {len(filas)} filas")
+        print(f"  tabla {tabla}: {len(filas)} filas")
 
-    # Planilla extra: la encuesta inicial de verdadero/falso, con el texto de
-    # cada afirmación al lado de la respuesta. Las dos planillas de arriba son
-    # la copia fiel de las tablas y se dejan intactas; esta es para poder
-    # leerla y analizarla sin tener el código abierto.
-    legibles = armar_encuesta_inicial_legible(
-        datos.get("encuesta_comidas", []), leer_afirmaciones()
-    )
-    if legibles:
-        csvs["encuesta_inicial_legible"] = armar_csv(legibles)
-        print(f"  encuesta_inicial_legible: {len(legibles)} respuestas con su enunciado")
-        lineas_resumen.append(
-            f"  - encuesta_inicial_legible: {len(legibles)} respuestas de la encuesta"
-            " de verdadero/falso, con el texto de cada afirmación"
-        )
+    filas_encuesta = datos.get("encuesta_comidas", [])
+
+    # Una planilla por tipo de contenido, para no tener que filtrar a mano.
+    #
+    # La copia cruda de encuesta_comidas se conserva igual: es la que sirve
+    # para restaurar la base si hiciera falta, y es además donde quedan las
+    # respuestas de las preguntas previas, que no tienen planilla propia.
+    COLUMNAS_ESCALA = ["usuario", "fecha", "numero", "afirmacion", "respuesta"]
+    planillas = [
+        ("usuarios", datos.get("usuarios", []), None),
+        (
+            "1-encuesta-inicial",
+            armar_planilla_de_escala(
+                filas_encuesta,
+                "encuesta_inicial",
+                "afirmacion_",
+                leer_lista_de_app("AFIRMACIONES_INICIALES"),
+            ),
+            COLUMNAS_ESCALA,
+        ),
+        ("2-registros-de-comidas", armar_planilla_de_comidas(filas_encuesta), None),
+        (
+            "3-encuesta-final",
+            armar_planilla_de_escala(
+                filas_encuesta,
+                "encuesta_cierre",
+                "cierre_",
+                leer_lista_de_app("AFIRMACIONES_CIERRE"),
+            ),
+            COLUMNAS_ESCALA,
+        ),
+        ("copia-completa-encuesta_comidas", filas_encuesta, None),
+    ]
+
+    csvs = {}
+    lineas_resumen = []
+    for nombre, filas, columnas_si_vacio in planillas:
+        csvs[nombre] = armar_csv(filas, columnas_si_vacio)
+        print(f"  {nombre}.csv: {len(filas)} filas")
+        lineas_resumen.append(f"  - {nombre}.csv: {len(filas)} filas")
 
     contenido = armar_zip(csvs)
     nombre_archivo = f"respaldo-encuesta-comidas-{hoy}.zip"
