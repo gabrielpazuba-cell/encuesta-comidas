@@ -544,6 +544,35 @@ CONSENTIMIENTO_ACEPTA = "ACEPTA"
 CONSENTIMIENTO_RECHAZA = "NO ACEPTA"
 
 
+# Encuesta de cierre: aparece una única vez, al terminar la ÚLTIMA de las
+# MAX_CARGAS cargas, antes de volver al menú. Se responde con una escala de
+# 1 a 7 (1 = totalmente en desacuerdo, 4 = ni de acuerdo ni en desacuerdo,
+# 7 = totalmente de acuerdo).
+#
+# Los enunciados son la traducción al español de una escala de engagement en
+# tareas; en la app se muestran SOLO en español, por pedido expreso.
+AFIRMACIONES_CIERRE = [
+    "Sentí que me desconectaba durante la tarea.",
+    "Perdí el interés en la tarea.",
+    "Me distraje.",
+    "Me sentí comprometido/a con terminar la tarea.",
+    "Sentí que mi participación era importante para el resultado del estudio.",
+    "Quise dedicar toda mi atención a la tarea.",
+    "Sentí que participar en el estudio tenía sentido.",
+    "Disfruté mientras realizaba la tarea.",
+    "La tarea me resultó atrapante.",
+    "Me sentí motivado/a a hacer un esfuerzo extra durante la tarea.",
+]
+
+CIERRE_MINIMO = 1
+CIERRE_MAXIMO = 7
+CIERRE_ANCLAS = {
+    1: "totalmente en desacuerdo",
+    4: "ni de acuerdo ni en desacuerdo",
+    7: "totalmente de acuerdo",
+}
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
@@ -2018,6 +2047,199 @@ def main(page: ft.Page):
             mostrar_volver=False,
         )
 
+    # ==========================================================
+    # PANTALLA: ENCUESTA DE CIERRE
+    # ----------------------------------------------------------
+    # Aparece una única vez, al terminar la ÚLTIMA carga (la número
+    # MAX_CARGAS), justo antes de volver al menú. Se dispara desde
+    # enviar_datos_y_mostrar_agradecimiento(), no desde el menú.
+    #
+    # Escala de 1 a 7 en vez de dos opciones, así que el enunciado va
+    # arriba y los números abajo: siete columnas al lado del texto no
+    # entran en la pantalla de un celular.
+    #
+    # Se guarda en encuesta_comidas con tipo_registro="encuesta_cierre".
+    # ==========================================================
+    def mostrar_encuesta_cierre():
+        respuestas = {}   # idx -> int 1..7
+        chips_por_fila = {}   # idx -> {valor: Container}
+        fila_containers = {}  # idx -> Container (para resaltar los que faltan)
+
+        ANCHO_TABLA = ancho_campo(560)
+        LADO_CHIP = 34
+
+        def color_de_fila(i):
+            return ft.Colors.GREY_100 if i % 2 else ft.Colors.WHITE
+
+        def pintar_chip(chip, valor, activo):
+            chip.bgcolor = ft.Colors.BLUE_700 if activo else ft.Colors.WHITE
+            chip.border = ft.border.all(
+                1, ft.Colors.BLUE_700 if activo else ft.Colors.GREY_400
+            )
+            chip.content = ft.Text(
+                str(valor),
+                size=14,
+                weight=ft.FontWeight.BOLD,
+                color=ft.Colors.WHITE if activo else ft.Colors.GREY_800,
+                text_align=ft.TextAlign.CENTER,
+            )
+
+        def on_chip(e, idx, valor):
+            respuestas[idx] = valor
+            for v, chip in chips_por_fila[idx].items():
+                pintar_chip(chip, v, v == valor)
+            # Vuelve a su color alternado, no a "sin color": si no, la fila
+            # que se acaba de responder rompería el rayado.
+            fila_containers[idx].bgcolor = color_de_fila(idx)
+            page.update()
+
+        enviando = {"valor": False}
+        texto_faltan = ft.Text("", color=ft.Colors.RED_700, size=13, text_align=ft.TextAlign.CENTER)
+
+        filas = []
+        for i, afirmacion in enumerate(AFIRMACIONES_CIERRE):
+            chips_fila = {}
+            controles_chips = []
+            for valor in range(CIERRE_MINIMO, CIERRE_MAXIMO + 1):
+                chip = ft.Container(
+                    width=LADO_CHIP,
+                    height=LADO_CHIP,
+                    border_radius=LADO_CHIP // 2,
+                    alignment=ft.Alignment.CENTER,
+                    on_click=lambda e, idx=i, v=valor: on_chip(e, idx, v),
+                    tooltip=CIERRE_ANCLAS.get(valor),
+                )
+                pintar_chip(chip, valor, False)
+                chips_fila[valor] = chip
+                controles_chips.append(chip)
+
+            chips_por_fila[i] = chips_fila
+            fila = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(f"{i + 1}. {afirmacion}", size=13),
+                        ft.Row(
+                            controles_chips,
+                            spacing=6,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            wrap=True,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                width=ANCHO_TABLA,
+                padding=ft.padding.symmetric(vertical=10, horizontal=10),
+                bgcolor=color_de_fila(i),
+                border_radius=6,
+            )
+            fila_containers[i] = fila
+            filas.append(fila)
+
+        lista_afirmaciones = ft.Column(filas, spacing=6, width=ANCHO_TABLA)
+
+        async def guardar_encuesta_cierre(e):
+            if enviando["valor"]:
+                return
+
+            faltan = [i for i in range(len(AFIRMACIONES_CIERRE)) if i not in respuestas]
+            if faltan:
+                for i in faltan:
+                    fila_containers[i].bgcolor = ft.Colors.RED_50
+                texto_faltan.value = (
+                    "Te falta responder 1 afirmación (marcada en rojo)."
+                    if len(faltan) == 1
+                    else f"Te faltan responder {len(faltan)} afirmaciones (marcadas en rojo)."
+                )
+                page.update()
+                return
+            texto_faltan.value = ""
+
+            enviando["valor"] = True
+            boton_continuar.disabled = True
+            page.update()
+
+            fecha_str = ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S")
+            registros = [
+                {
+                    "usuario": estado["email"],
+                    "fecha": fecha_str,
+                    "tipo_registro": "encuesta_cierre",
+                    "momento_dia": "encuesta_cierre",
+                    "item_nombre": f"cierre_{i + 1:02d}",
+                    "item_detalle": str(respuestas[i]),
+                }
+                for i in range(len(AFIRMACIONES_CIERRE))
+            ]
+
+            def _guardar_todo():
+                for registro in registros:
+                    exito, _ = enviar_o_actualizar_registro(registro, None)
+                    if not exito:
+                        return False
+                return True
+
+            ok = await asyncio.to_thread(_guardar_todo)
+
+            enviando["valor"] = False
+            boton_continuar.disabled = False
+
+            if not ok:
+                page.update()
+                mostrar_error_guardado()
+                return
+
+            historial.clear()
+            ir_a(mostrar_dashboard)
+
+        boton_continuar = ft.ElevatedButton(
+            "Finalizar",
+            on_click=guardar_encuesta_cierre,
+            width=ancho_campo(),
+            height=50,
+        )
+
+        # La referencia de la escala queda FUERA de la lista que scrollea,
+        # para no tener que subir a buscar qué significaba cada número.
+        referencia = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "1 = totalmente en desacuerdo",
+                        size=12, color=ft.Colors.BLUE_900,
+                    ),
+                    ft.Text(
+                        "4 = ni de acuerdo ni en desacuerdo",
+                        size=12, color=ft.Colors.BLUE_900,
+                    ),
+                    ft.Text(
+                        "7 = totalmente de acuerdo",
+                        size=12, color=ft.Colors.BLUE_900,
+                    ),
+                ],
+                spacing=2,
+            ),
+            width=ANCHO_TABLA,
+            padding=ft.padding.symmetric(vertical=8, horizontal=10),
+            bgcolor=ft.Colors.BLUE_50,
+            border_radius=6,
+        )
+
+        pantalla(
+            ft.Text(
+                "Indicá cuán de acuerdo estás con las siguientes afirmaciones",
+                size=17, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Text(
+                "Es la última parte del estudio y se completa una sola vez.",
+                size=13, color=ft.Colors.GREY_600, text_align=ft.TextAlign.CENTER,
+            ),
+            referencia,
+            lista_afirmaciones,
+            texto_faltan,
+            boton_continuar,
+            mostrar_volver=False,
+        )
+
     def mostrar_dashboard():
         # Corte de participación: se chequea acá porque el menú es el paso
         # obligado para llegar a cualquier otra pantalla (encuesta, resumen,
@@ -3228,14 +3450,25 @@ def main(page: ft.Page):
             historial.clear()
             historial_adelante.clear()
 
+            # Si esta fue la última carga, en vez de volver al menú va la
+            # encuesta de cierre. marcar_usuario_completado_hoy() ya sumó
+            # esta carga al contador, así que acá el número ya es el final.
+            ultima_carga = estado["sesiones_historicas"] >= MAX_CARGAS
+
             pantalla(
                 ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=60),
                 ft.Text("¡Muchas gracias!", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Volviendo al menú de inicio...", size=14, color=ft.Colors.GREY_700),
+                ft.Text(
+                    "Queda una última encuesta y terminás..."
+                    if ultima_carga
+                    else "Volviendo al menú de inicio...",
+                    size=14,
+                    color=ft.Colors.GREY_700,
+                ),
                 mostrar_volver=False,
             )
             time.sleep(1.5)
-            ir_a(mostrar_dashboard)
+            ir_a(mostrar_encuesta_cierre if ultima_carga else mostrar_dashboard)
 
         threading.Thread(target=_enviar, daemon=True).start()
 
