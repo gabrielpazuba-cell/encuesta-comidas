@@ -1021,14 +1021,24 @@ def main(page: ft.Page):
                 params={
                     "usuario": f"eq.{email}",
                     "tipo_registro": "in.(consentimiento,preguntas_previas,encuesta_inicial)",
-                    "select": "tipo_registro",
+                    "select": "tipo_registro,item_detalle",
                 },
                 timeout=8,
             )
             if resp.ok:
-                tipos = {r.get("tipo_registro") for r in resp.json()}
+                filas = resp.json()
+                tipos = {r.get("tipo_registro") for r in filas}
+                # OJO: no alcanza con que EXISTA una fila de consentimiento.
+                # Quien contestó "no acepto" también deja una, y darla por
+                # buena lo metería en el estudio sin haber aceptado. Solo
+                # cuenta si el valor guardado es el de aceptación.
+                acepto = any(
+                    r.get("tipo_registro") == "consentimiento"
+                    and (r.get("item_detalle") or "").strip().upper() == CONSENTIMIENTO_ACEPTA
+                    for r in filas
+                )
                 return (
-                    "consentimiento" in tipos,
+                    acepto,
                     "preguntas_previas" in tipos,
                     "encuesta_inicial" in tipos,
                 )
@@ -1480,6 +1490,24 @@ def main(page: ft.Page):
         # las veces que haga falta.
         return estado["modo_local"] or not estado["vio_instrucciones"]
 
+    def entrar_a_la_encuesta():
+        """Arranca el registro del día: primero el video, si corresponde.
+
+        Está separado en una función porque se entra a la encuesta desde
+        varios lados (el botón del menú, y el final de cada sección que se
+        hace una sola vez), y todos tienen que hacer exactamente lo mismo.
+        """
+        aplicar_progreso_guardado()
+        # Arrancamos un historial nuevo para la encuesta: si no, al reanudar
+        # directo en medio de una comida o en la parte de snacks, "Atrás"
+        # quedaba con el menú principal debajo en la pila y te mandaba ahí de
+        # un salto en vez de quedarse dentro de la encuesta.
+        historial.clear()
+        if debe_mostrar_instrucciones():
+            ir_a(mostrar_instrucciones)
+        else:
+            ir_a_pregunta_o_items()
+
     def marcar_instrucciones_vistas():
         estado["vio_instrucciones"] = True
         if not estado["modo_local"]:
@@ -1696,16 +1724,17 @@ def main(page: ft.Page):
                 ir_a(mostrar_consentimiento_rechazado)
                 return
 
-            # Aceptó: sigue por donde le corresponda. Quien ya tenía las otras
-            # secciones hechas (participantes que empezaron antes de que este
-            # consentimiento existiera) vuelve directo al menú.
+            # Aceptó: sigue derecho, sin pasar por el menú. Si le faltan las
+            # otras secciones que se hacen una sola vez, van primero y esas
+            # encadenan solas hasta la encuesta; si ya las tenía hechas,
+            # entra directo al video y al registro del día.
             historial.clear()
             if not estado["preguntas_previas_completas"]:
                 ir_a(mostrar_preguntas_previas)
             elif not estado["encuesta_inicial_completa"]:
                 ir_a(mostrar_encuesta_inicial)
             else:
-                ir_a(mostrar_dashboard)
+                entrar_a_la_encuesta()
 
         boton_continuar = ft.ElevatedButton(
             "Continuar",
@@ -2068,8 +2097,9 @@ def main(page: ft.Page):
                 return
 
             estado["encuesta_inicial_completa"] = True
-            historial.clear()
-            ir_a(mostrar_dashboard)
+            # Última sección de una sola vez: de acá se sigue derecho al
+            # video y al registro del día, sin rebotar por el menú.
+            entrar_a_la_encuesta()
 
         boton_continuar = ft.ElevatedButton("Continuar", on_click=guardar_encuesta_inicial, width=ancho_campo(), height=50)
 
@@ -2347,17 +2377,7 @@ def main(page: ft.Page):
             estado["preguntas_previas_completas"] = True
             estado["encuesta_inicial_completa"] = True
 
-            aplicar_progreso_guardado()
-            # Arrancamos un historial nuevo para la encuesta: si no, al
-            # reanudar directo en medio de una comida o en la parte de
-            # snacks, "Atrás" quedaba con el menú principal debajo en la
-            # pila y te mandaba ahí de un salto en vez de quedarse dentro
-            # de la encuesta.
-            historial.clear()
-            if debe_mostrar_instrucciones():
-                ir_a(mostrar_instrucciones)
-            else:
-                ir_a_pregunta_o_items()
+            entrar_a_la_encuesta()
 
         # "COMENZAR" va DENTRO de la tarjeta, en la columna de "Hoy": es la
         # acción del día y ahí queda pegada al estado que la explica, en vez
