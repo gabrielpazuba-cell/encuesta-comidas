@@ -1110,6 +1110,32 @@ def main(page: ft.Page):
 
     page.on_login = _al_iniciar_sesion_google
 
+    # ==========================================================
+    # PANTALLA 0: BIENVENIDA
+    # ----------------------------------------------------------
+    # Lo primero que ve quien abre el link: solo los logos y el botón
+    # para arrancar. El login viene después y ya SIN logos, para no
+    # repetirlos en dos pantallas seguidas.
+    # ==========================================================
+    def mostrar_bienvenida():
+        pantalla(
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            *logos_institucionales(ancho=ancho_campo(360)),
+            ft.Divider(height=30, color=ft.Colors.TRANSPARENT),
+            ft.ElevatedButton(
+                content=ft.Text(
+                    TEXTO_BOTON_COMENZAR,
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                on_click=lambda _: ir_a(mostrar_login),
+                width=ancho_campo(),
+                height=70,
+            ),
+            mostrar_volver=False,
+        )
+
     def mostrar_login():
         async def iniciar_con_google(e):
             await page.login(google_provider)
@@ -1200,10 +1226,9 @@ def main(page: ft.Page):
         texto_error = ft.Text("", color=ft.Colors.RED)
         boton_ingresar = ft.ElevatedButton("Ingresar", on_click=iniciar_sesion, width=ancho_campo(), height=50)
 
-        controles = [
-            *logos_institucionales(),
-            ft.Text("Bienvenido", size=30, weight=ft.FontWeight.BOLD),
-        ]
+        # Sin logos: ya los mostró la pantalla de bienvenida, que es la
+        # anterior a esta.
+        controles = [ft.Text("Bienvenido", size=30, weight=ft.FontWeight.BOLD)]
 
         if google_provider:
             controles.append(
@@ -3473,7 +3498,7 @@ def main(page: ft.Page):
         threading.Thread(target=_enviar, daemon=True).start()
 
     # Arranque de la app
-    ir_a(mostrar_login)
+    ir_a(mostrar_bienvenida)
 
 
 # ==========================================================
