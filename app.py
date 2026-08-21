@@ -512,8 +512,13 @@ AFIRMACIONES_INICIALES = [
 ]
 
 
-# Texto del botón que arranca el registro diario, en el menú principal.
+# Botón grande de la pantalla de bienvenida, la primera que se ve al abrir
+# el link.
 TEXTO_BOTON_COMENZAR = "COMENZAR EL REGISTRO ALIMENTARIO EN LÍNEA"
+
+# En el menú principal el botón vive DENTRO de la tarjeta de estado, en la
+# columna de "Hoy", así que va corto.
+TEXTO_BOTON_MENU = "COMENZAR"
 
 # Consentimiento informado: aparece una única vez, la primera vez que la
 # persona toca el botón de comenzar, antes de cualquier otra sección.
@@ -2281,36 +2286,8 @@ def main(page: ft.Page):
 
         habilitado = esta_habilitado_hoy()
 
-        if habilitado:
-            columna_hoy = ft.Column(
-                [ft.Text("Hoy", weight=ft.FontWeight.BOLD), ft.Text("Disponible", size=16, color=ft.Colors.BLUE)],
-                alignment=ft.MainAxisAlignment.CENTER,
-            )
-        else:
-            texto_countdown = ft.Text(tiempo_restante_texto(), size=14, color=ft.Colors.GREY_700)
-            columna_hoy = ft.Column(
-                [
-                    ft.Text("Hoy", weight=ft.FontWeight.BOLD),
-                    ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=28),
-                    texto_countdown,
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-            )
-
-        tarjeta_stats = ft.Card(
-            content=ft.Container(
-                padding=20,
-                content=ft.Row(
-                    controls=[
-                        ft.Column([ft.Text("Histórico", weight=ft.FontWeight.BOLD), ft.Text(str(estado["sesiones_historicas"]), size=24)], alignment=ft.MainAxisAlignment.CENTER),
-                        ft.Container(width=2, height=50, bgcolor=ft.Colors.GREY_300),
-                        columna_hoy,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_EVENLY
-                )
-            ),
-            width=ancho_campo()
-        )
+        # La tarjeta de estado se arma más abajo, después de comenzar_encuesta:
+        # el botón "COMENZAR" vive adentro de ella y necesita ese handler.
 
         # async + asyncio.to_thread: las consultas a Supabase son bloqueantes
         # y Flet corre los handlers sincrónicos sobre el event loop, así que
@@ -2329,7 +2306,7 @@ def main(page: ft.Page):
                 )
 
             boton_comenzar.disabled = False
-            etiqueta_comenzar.value = TEXTO_BOTON_COMENZAR
+            etiqueta_comenzar.value = TEXTO_BOTON_MENU
 
             # Se guardan antes de derivar: la pantalla de consentimiento las
             # usa para saber a qué sección mandar después de aceptar.
@@ -2367,24 +2344,62 @@ def main(page: ft.Page):
             else:
                 ir_a_pregunta_o_items()
 
-        # El texto del botón va dentro de un ft.Text propio (en vez de usar el
-        # parámetro `text`) porque no entra en un renglón: así se parte en
-        # varias líneas centradas en vez de quedar cortado. El botón es más
-        # alto por lo mismo. La etiqueta se guarda aparte para poder cambiarle
-        # el texto mientras carga.
-        etiqueta_comenzar = ft.Text(
-            TEXTO_BOTON_COMENZAR if habilitado else "Ya completaste el registro de hoy",
-            size=14,
-            weight=ft.FontWeight.BOLD,
-            text_align=ft.TextAlign.CENTER,
-        )
+        # "COMENZAR" va DENTRO de la tarjeta, en la columna de "Hoy": es la
+        # acción del día y ahí queda pegada al estado que la explica, en vez
+        # de repetir abajo un botón ancho. Cuando ya se completó el registro
+        # no hay botón: en su lugar aparecen el tilde verde y la cuenta
+        # regresiva, que dicen por qué no se puede seguir.
+        #
+        # La etiqueta se guarda aparte para poder cambiarle el texto mientras
+        # consulta a Supabase.
+        etiqueta_comenzar = ft.Text(TEXTO_BOTON_MENU, size=13, weight=ft.FontWeight.BOLD)
 
         boton_comenzar = ft.ElevatedButton(
             content=etiqueta_comenzar,
-            on_click=comenzar_encuesta if habilitado else None,
-            disabled=not habilitado,
+            on_click=comenzar_encuesta,
+            bgcolor=ft.Colors.ORANGE_100,
+            color=ft.Colors.ORANGE_900,
+            height=38,
+        )
+
+        if habilitado:
+            columna_hoy = ft.Column(
+                [ft.Text("Hoy", weight=ft.FontWeight.BOLD), boton_comenzar],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        else:
+            texto_countdown = ft.Text(tiempo_restante_texto(), size=14, color=ft.Colors.GREY_700)
+            columna_hoy = ft.Column(
+                [
+                    ft.Text("Hoy", weight=ft.FontWeight.BOLD),
+                    ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=28),
+                    texto_countdown,
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+
+        tarjeta_stats = ft.Card(
+            content=ft.Container(
+                padding=20,
+                content=ft.Row(
+                    controls=[
+                        ft.Column(
+                            [
+                                ft.Text("Histórico", weight=ft.FontWeight.BOLD),
+                                ft.Text(str(estado["sesiones_historicas"]), size=24),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(width=2, height=50, bgcolor=ft.Colors.GREY_300),
+                        columna_hoy,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_EVENLY,
+                )
+            ),
             width=ancho_campo(),
-            height=70,
         )
 
         boton_resumen = ft.OutlinedButton(
@@ -2414,7 +2429,6 @@ def main(page: ft.Page):
             ft.Text(f"Hola, {nombre_mostrar}!", size=24, weight=ft.FontWeight.BOLD),
             tarjeta_stats,
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-            boton_comenzar,
             boton_resumen,
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
             boton_contacto(),
