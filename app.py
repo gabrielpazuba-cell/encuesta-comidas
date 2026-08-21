@@ -1715,6 +1715,13 @@ def main(page: ft.Page):
             height=50,
         )
 
+        # Ancho tope para el texto y las opciones. Sin esto, en una pantalla
+        # de computadora los párrafos se estiran de borde a borde de la
+        # tarjeta y quedan renglones larguísimos, incómodos de leer. Con el
+        # tope, el bloque queda como una columna centrada (la pantalla ya
+        # centra a sus hijos). Es el mismo ancho que usa la encuesta inicial.
+        ANCHO_TEXTO = ancho_campo(560)
+
         parrafos = [
             ft.Text(p, size=14, text_align=ft.TextAlign.JUSTIFY)
             for p in CONSENTIMIENTO_PARRAFOS
@@ -1729,12 +1736,20 @@ def main(page: ft.Page):
             ),
             ft.Container(
                 content=ft.Column(parrafos, spacing=12),
+                width=ANCHO_TEXTO,
                 padding=16,
                 bgcolor=ft.Colors.BLUE_50,
                 border_radius=10,
             ),
             ft.Divider(height=5, color=ft.Colors.TRANSPARENT),
-            opciones,
+            # Las dos opciones van centradas como bloque, pero alineadas
+            # entre sí a la izquierda: si se centrara cada una por separado,
+            # los círculos quedarían desalineados uno respecto del otro.
+            ft.Container(
+                content=opciones,
+                width=ANCHO_TEXTO,
+                alignment=ft.Alignment.CENTER,
+            ),
             boton_continuar,
             mostrar_volver=False,
         )
