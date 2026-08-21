@@ -2885,8 +2885,8 @@ def main(page: ft.Page):
     # ==========================================================
     def mostrar_instrucciones():
         texto_instrucciones = ft.Text(
-            "Instrucciones:\nA continuación te haremos algunas preguntas sobre todo lo que consumiste ayer. Por favor, mirá este video antes de comenzar.",
-            text_align=ft.TextAlign.CENTER
+            "Por favor, mirá este video antes de comenzar.",
+            text_align=ft.TextAlign.CENTER,
         )
 
         caja_video = ft.Container(
