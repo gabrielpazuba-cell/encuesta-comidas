@@ -1,4 +1,5 @@
 import flet as ft
+import flet_video as ftv
 import asyncio
 import time
 import threading
@@ -467,6 +468,11 @@ def emoji_para_item(nombre_item, categoria):
 # Si todavía NO tenés la imagen, dejá el valor en None y la app igual funciona.
 # ==========================================================
 FONDO = None                # Ej: "fondo.png"  -> fondo de todas las pantallas
+
+# Video instructivo que se muestra antes de la primera encuesta. Vive en la
+# carpeta "assets" y la app lo sirve desde su propia dirección, así que no
+# depende de YouTube ni de ningún servicio externo. Es 1920x1080 (16:9).
+VIDEO_INSTRUCTIVO = "/instructivo.mp4"
 
 # Logos institucionales (ESN + Laboratorio de Neurociencia Di Tella), que van
 # en la pantalla de inicio y en el menú principal. El PNG tiene fondo
@@ -2889,17 +2895,26 @@ def main(page: ft.Page):
             text_align=ft.TextAlign.CENTER,
         )
 
+        # El video real, servido por la propia app desde la carpeta assets.
+        # 1920x1080, así que la caja va en 16:9 y no quedan franjas negras.
+        # autoplay apagado a propósito: los navegadores bloquean el audio si
+        # el video arranca solo, y la persona lo vería mudo sin entender por
+        # qué. Con los controles a la vista, lo arranca ella.
+        ancho_video = ancho_campo(560)
         caja_video = ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Row(
-                        controls=[ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, size=50, color=ft.Colors.WHITE)],
-                        alignment=ft.MainAxisAlignment.CENTER
-                    )
-                ],
-                alignment=ft.MainAxisAlignment.CENTER
+            content=ftv.Video(
+                playlist=[ftv.VideoMedia(resource=VIDEO_INSTRUCTIVO)],
+                autoplay=False,
+                show_controls=True,
+                muted=False,
+                fit=ft.BoxFit.CONTAIN,
+                fill_color=ft.Colors.BLACK,
+                expand=True,
             ),
-            width=ancho_campo(), height=170, bgcolor=ft.Colors.BLACK87, border_radius=10
+            width=ancho_video,
+            height=int(ancho_video * 9 / 16),
+            border_radius=10,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         )
 
         def comenzar_click(e):
