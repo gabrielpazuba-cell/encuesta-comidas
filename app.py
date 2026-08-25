@@ -2395,11 +2395,16 @@ def main(page: ft.Page):
         # consulta a Supabase.
         etiqueta_comenzar = ft.Text(TEXTO_BOTON_MENU, size=13, weight=ft.FontWeight.BOLD)
 
+        # Cuando el registro del día ya se completó, el botón sigue a la vista
+        # pero apagado y sin reaccionar al toque. Antes directamente no
+        # aparecía, y eso dejaba la duda de si la app se había roto; así se ve
+        # que el botón existe, que hoy no se puede, y cuánto falta.
         boton_comenzar = ft.ElevatedButton(
             content=etiqueta_comenzar,
-            on_click=comenzar_encuesta,
-            bgcolor=ft.Colors.ORANGE_100,
-            color=ft.Colors.ORANGE_900,
+            on_click=comenzar_encuesta if habilitado else None,
+            disabled=not habilitado,
+            bgcolor=ft.Colors.ORANGE_100 if habilitado else ft.Colors.GREY_300,
+            color=ft.Colors.ORANGE_900 if habilitado else ft.Colors.GREY_600,
             height=38,
         )
 
@@ -2410,15 +2415,17 @@ def main(page: ft.Page):
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             )
         else:
-            texto_countdown = ft.Text(tiempo_restante_texto(), size=14, color=ft.Colors.GREY_700)
+            texto_countdown = ft.Text(tiempo_restante_texto(), size=12, color=ft.Colors.GREY_700)
             columna_hoy = ft.Column(
                 [
                     ft.Text("Hoy", weight=ft.FontWeight.BOLD),
-                    ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=28),
+                    ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=22),
+                    boton_comenzar,
                     texto_countdown,
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=6,
             )
 
         tarjeta_stats = ft.Card(
