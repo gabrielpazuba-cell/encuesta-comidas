@@ -1492,9 +1492,16 @@ def main(page: ft.Page):
         )
 
     def debe_mostrar_instrucciones():
-        # Acceso piloto: siempre se muestra, para poder probar esa pantalla
-        # las veces que haga falta.
-        return estado["modo_local"] or not estado["vio_instrucciones"]
+        # El video se muestra TODOS los días, antes de cada registro: sirve de
+        # recordatorio de cómo completarlo. Quien ya lo vio no queda atrapado,
+        # porque el botón para continuar está a la vista desde el primer
+        # momento, sin esperar a que el video termine.
+        #
+        # Se sigue guardando `vio_instrucciones` en la base (ver
+        # marcar_instrucciones_vistas): permite saber quién llegó a esta
+        # pantalla alguna vez, que es un dato del estudio y no solo de la
+        # interfaz.
+        return True
 
     def entrar_a_la_encuesta():
         """Arranca el registro del día: primero el video, si corresponde.
@@ -1515,6 +1522,12 @@ def main(page: ft.Page):
             ir_a_pregunta_o_items()
 
     def marcar_instrucciones_vistas():
+        # Si ya estaba marcado, no se vuelve a escribir: esta pantalla ahora
+        # aparece todos los días, y sería un pedido a la base al pedo (y
+        # bloqueante) cada vez que alguien arranca su registro.
+        if estado["vio_instrucciones"]:
+            return
+
         estado["vio_instrucciones"] = True
         if not estado["modo_local"]:
             try:
@@ -2928,7 +2941,15 @@ def main(page: ft.Page):
             marcar_instrucciones_vistas()
             ir_a_pregunta_o_items()
 
-        boton_comenzar = ft.ElevatedButton("Comenzar", on_click=comenzar_click, width=ancho_campo(), height=50)
+        # Etiqueta explícita de "saltear": el video aparece todos los días y
+        # quien ya lo vio tiene que poder seguir de largo sin dudar de si se
+        # está perdiendo algo por no esperar a que termine.
+        boton_comenzar = ft.ElevatedButton(
+            "Ya lo vi, continuar",
+            on_click=comenzar_click,
+            width=ancho_campo(),
+            height=50,
+        )
 
         pantalla(texto_instrucciones, caja_video, ft.Divider(color=ft.Colors.TRANSPARENT), boton_comenzar)
 
