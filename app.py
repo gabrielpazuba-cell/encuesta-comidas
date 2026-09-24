@@ -998,11 +998,22 @@ def main(page: ft.Page):
             print("Error de red (actualizar password):", e)
             return False
 
-    # Acceso rápido para la prueba piloto: se salta la validación de mail
-    # y entra directo con un usuario fijo. Sacar esto cuando termine el piloto.
-    PILOTO_USUARIO = "gaby"
-    PILOTO_CONTRASENA = "taekwondo"
-    PILOTO_EMAIL = "gaby.piloto@test.local"
+    # Accesos rápidos para la prueba piloto: se saltan la validación de mail
+    # y entran directo en modo local, sin tocar Supabase para nada. Los tres
+    # funcionan exactamente igual; cada uno tiene su propio mail interno solo
+    # para no confundirlos. Sacar esto cuando termine el piloto.
+    #
+    # Tienen que ser los MISMOS en las tres apps del estudio, así cualquiera
+    # del equipo prueba las tres condiciones con el mismo usuario.
+    #
+    # El usuario se escribe en el campo "Email" (da igual en mayúsculas o
+    # minúsculas); la contraseña va exacta.
+    PILOTOS = {
+        # usuario: (contraseña, mail interno)
+        "gaby": ("taekwondo", "gaby.piloto@test.local"),
+        "leo": ("Leo12345", "leo.piloto@test.local"),
+        "mara": ("Mara12345", "mara.piloto@test.local"),
+    }
 
     def secciones_iniciales_hechas(email):
         # Devuelve (dio_consentimiento, hizo_preguntas_previas,
@@ -1088,6 +1099,12 @@ def main(page: ft.Page):
             ir_a(mostrar_participacion_vencida)
         elif estado["nombre"]:
             ir_a(mostrar_dashboard)
+        elif local:
+            # Piloto sin perfil: se le pregunta si quiere hacer el alta
+            # completa o ir derecho al menú. A un participante real NUNCA
+            # se le ofrece esto: la condición `local` solo es verdadera
+            # entrando con alguno de los usuarios piloto (ver PILOTOS).
+            ir_a(mostrar_entrada_piloto)
         else:
             # Primera vez que entra este usuario: tiene que completar su
             # perfil antes de poder usar la encuesta.
@@ -1165,12 +1182,13 @@ def main(page: ft.Page):
             valor = (input_email.value or "").strip()
             contrasena = input_contrasena.value or ""
 
-            es_piloto = valor.lower() == PILOTO_USUARIO and contrasena == PILOTO_CONTRASENA
+            piloto = PILOTOS.get(valor.lower())
+            es_piloto = piloto is not None and contrasena == piloto[0]
 
             if es_piloto:
                 # Modo local: no toca Supabase para nada, usa datos en memoria.
                 usuario_local = {
-                    "email": PILOTO_EMAIL,
+                    "email": piloto[1],
                     "id": "local-piloto",
                     "sesiones_historicas": estado.get("sesiones_historicas", 0),
                     "ultima_fecha_completado": estado.get("ultima_fecha_completado"),
@@ -2600,6 +2618,89 @@ def main(page: ft.Page):
                 "así que en este momento no formás parte del público objetivo. ¡Gracias igual por sumarte a probarlo!",
                 text_align=ft.TextAlign.CENTER,
             ),
+        )
+
+    # ==========================================================
+    # PANTALLA: ENTRADA DEL PILOTO (no la ve ningún participante)
+    # ----------------------------------------------------------
+    # Probar un registro diario obligaba a rehacer cada vez el perfil, el
+    # consentimiento y las dos encuestas iniciales. Para el piloto eso es
+    # puro trámite: lo que se quiere probar está del menú para adelante.
+    #
+    # Se ofrecen los dos caminos en vez de saltear siempre, porque el alta
+    # completa también hay que poder probarla.
+    #
+    # Es la misma pantalla que tienen las apps 2 y 3, sin la elección de
+    # personaje (esta app no tiene gamificación). Se agregó el 24/09/2026
+    # para que los usuarios piloto funcionen igual en las tres apps.
+    #
+    # Esta pantalla solo aparece entrando con alguno de los usuarios piloto
+    # (ver PILOTOS; `local=True` en entrar_con_usuario). Un participante real
+    # no tiene forma de llegar acá.
+    # ==========================================================
+    def mostrar_entrada_piloto():
+        def alta_completa(e=None):
+            ir_a(mostrar_perfil)
+
+        def directo_al_menu(e=None):
+            # Datos de relleno para que el menú y el registro funcionen.
+            # No se guardan en ningún lado: el piloto corre en modo local y
+            # no toca Supabase, así que esto no ensucia los datos del estudio.
+            estado["nombre"] = "Piloto"
+            estado["edad"] = 30
+            estado["genero"] = "Prefiero no decirlo"
+            estado["educacion"] = "Universitario completo"
+            estado["ocupacion"] = "Prueba"
+            estado["ubicacion"] = "CABA"
+            historial.clear()
+            ir_a(mostrar_dashboard)
+
+        pantalla(
+            ft.Icon(ft.Icons.SCIENCE, size=50, color=ft.Colors.BLUE_GREY),
+            ft.Text(
+                "Acceso piloto",
+                size=24,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Text(
+                "Entraste con el usuario de prueba. Elegí por dónde empezar.",
+                size=14,
+                color=ft.Colors.GREY_800,
+                text_align=ft.TextAlign.CENTER,
+                width=ancho_campo(),
+            ),
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            ft.ElevatedButton(
+                content=ft.Column(
+                    [
+                        ft.Text("Ir directo al menú principal", weight=ft.FontWeight.BOLD),
+                        ft.Text("Saltea el perfil, el consentimiento y las dos encuestas iniciales", size=11),
+                    ],
+                    spacing=2,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    tight=True,
+                ),
+                on_click=directo_al_menu,
+                width=ancho_campo(),
+                height=70,
+            ),
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            ft.OutlinedButton(
+                content=ft.Column(
+                    [
+                        ft.Text("Hacer el alta completa", weight=ft.FontWeight.BOLD),
+                        ft.Text("El mismo recorrido que hace un participante real", size=11),
+                    ],
+                    spacing=2,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    tight=True,
+                ),
+                on_click=alta_completa,
+                width=ancho_campo(),
+                height=70,
+            ),
+            mostrar_volver=False,
         )
 
     def mostrar_perfil():
