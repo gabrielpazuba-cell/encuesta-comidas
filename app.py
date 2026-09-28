@@ -3027,6 +3027,123 @@ def main(page: ft.Page):
         )
 
     # ==========================================================
+    # VIDEO CON UN PLAY GRANDE EN EL MEDIO
+    # ----------------------------------------------------------
+    # Pedido de Gabriel (28/09/2026): tener que ir al botón chiquito de la
+    # caja para empezar un video era muy raro.
+    #
+    # El video puede arrancar solo apenas se entra a su pantalla. Casi todos
+    # los navegadores lo dejan, y con sonido, porque para llegar ahí la
+    # persona ya tocó algo en la página. Si el navegador no lo deja (Safari
+    # en el iPhone, por ejemplo), el video queda quieto y aparece un botón de
+    # play grande en el medio. Probado el 28/09/2026: en ese caso el
+    # reproductor avisa bien que no está andando.
+    #
+    # Si no tiene que arrancar solo, el play grande está a la vista desde el
+    # principio, para que la persona lo arranque cuando quiera.
+    # ==========================================================
+    def lado_del_play(alto_video):
+        # Grande de verdad: un cuarto del alto del video, entre 64 y 110 px
+        # (en el celular el video es chico y no tiene que taparlo entero).
+        return max(64, min(110, alto_video // 4))
+
+    def video_con_play_grande(recurso, ancho, alto, sigue_a_la_vista, arranca_solo):
+        """La caja del video, lista para poner en la pantalla.
+
+        `arranca_solo` dice si el video arranca solo al entrar, o si queda
+        quieto con el play grande a la vista. `sigue_a_la_vista` es una
+        función que dice si la pantalla del video sigue abierta: mientras sí,
+        se vigila si el video arrancó (ver vigilar_arranque). Devuelve la caja
+        y el botón de play grande, por si después hay que cambiarle el tamaño.
+        """
+        video = ftv.Video(
+            playlist=[ftv.VideoMedia(resource=recurso)],
+            autoplay=arranca_solo,
+            show_controls=True,
+            muted=False,
+            fit=ft.BoxFit.CONTAIN,
+            fill_color=ft.Colors.BLACK,
+            expand=True,
+        )
+
+        async def tocar_play(e):
+            # En casi todos los navegadores esto alcanza. Si no (el iPhone),
+            # el mismo toque igual le llega al reproductor de abajo gracias
+            # al TransparentPointer, y se arranca con sus propios controles.
+            try:
+                await video.play()
+            except Exception as error:
+                print("No se pudo arrancar el video desde el botón:", repr(error))
+
+        lado = lado_del_play(alto)
+        boton_play = ft.Container(
+            content=ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ft.Colors.WHITE, size=lado * 0.64),
+            width=lado,
+            height=lado,
+            shape=ft.BoxShape.CIRCLE,
+            bgcolor=ft.Colors.with_opacity(0.6, ft.Colors.BLACK),
+            border=ft.Border.all(2, ft.Colors.WHITE),
+            alignment=ft.Alignment.CENTER,
+            on_click=tocar_play,
+            visible=not arranca_solo,
+        )
+
+        async def vigilar_arranque(e=None):
+            """Muestra el botón de play grande mientras el video esté quieto.
+
+            Arranca cuando el video terminó de cargar. Pregunta cada medio
+            segundo si está andando: si al segundo y medio sigue quieto (no
+            arrancó solo, o no tenía que hacerlo), el botón queda a la vista;
+            apenas arranca (por el botón o por los controles del reproductor),
+            el botón se va y no vuelve. Termina sola si la persona se va de la
+            pantalla, si se corta la conexión, o a los 15 minutos, para no
+            quedar preguntando para siempre.
+            """
+            esperado = 0.0
+            while sigue_a_la_vista() and esperado < 900:
+                try:
+                    anda = await video.is_playing()
+                except Exception:
+                    return
+                if anda:
+                    if boton_play.visible:
+                        boton_play.visible = False
+                        page.update()
+                    return
+                if esperado >= 1.5 and not boton_play.visible:
+                    boton_play.visible = True
+                    page.update()
+                await asyncio.sleep(0.5)
+                esperado += 0.5
+
+        video.on_load = vigilar_arranque
+
+        caja = ft.Container(
+            content=ft.Stack(
+                [
+                    video,
+                    # TransparentPointer: el toque en el botón grande le llega
+                    # también al reproductor de abajo, en vez de quedarse en
+                    # el botón. Y lo que no es el botón (el resto de la caja,
+                    # los controles de abajo) funciona igual que sin botón.
+                    ft.TransparentPointer(
+                        content=ft.Container(content=boton_play, alignment=ft.Alignment.CENTER),
+                    ),
+                ],
+                fit=ft.StackFit.EXPAND,
+            ),
+            width=ancho,
+            height=alto,
+            # Negro de fondo mientras el video termina de cargar, en vez de
+            # transparente. Ojo: el instructivo quieto se ve blanco igual,
+            # porque su primer cuadro ES blanco (medido el 28/09/2026).
+            bgcolor=ft.Colors.BLACK,
+            border_radius=10,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        )
+        return caja, boton_play
+
+    # ==========================================================
     # PANTALLA 3: INSTRUCCIONES Y VIDEO
     # ==========================================================
     def mostrar_instrucciones():
@@ -3037,24 +3154,22 @@ def main(page: ft.Page):
 
         # El video real, servido por la propia app desde la carpeta assets.
         # 1920x1080, así que la caja va en 16:9 y no quedan franjas negras.
-        # autoplay apagado a propósito: los navegadores bloquean el audio si
-        # el video arranca solo, y la persona lo vería mudo sin entender por
-        # qué. Con los controles a la vista, lo arranca ella.
+        #
+        # Arranca solo únicamente el primer día, o sea mientras la persona no
+        # completó ningún registro (pedido de Gabriel, 28/09/2026): esa vez es
+        # para aprender a cargar y tiene que verse. Si vuelve a aparecer otro
+        # día (en la app 1 sale todos los días; en las otras dos, solo el
+        # piloto lo ve más de una vez), queda quieto con el play grande a la
+        # vista, y lo arranca la persona si quiere. Ver video_con_play_grande,
+        # justo arriba.
         ancho_video = ancho_campo(560)
-        caja_video = ft.Container(
-            content=ftv.Video(
-                playlist=[ftv.VideoMedia(resource=VIDEO_INSTRUCTIVO)],
-                autoplay=False,
-                show_controls=True,
-                muted=False,
-                fit=ft.BoxFit.CONTAIN,
-                fill_color=ft.Colors.BLACK,
-                expand=True,
-            ),
-            width=ancho_video,
-            height=int(ancho_video * 9 / 16),
-            border_radius=10,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        a_la_vista = {}
+        caja_video, _ = video_con_play_grande(
+            VIDEO_INSTRUCTIVO,
+            ancho_video,
+            int(ancho_video * 9 / 16),
+            lambda: bool(page.controls) and page.controls[0] is a_la_vista.get("raiz"),
+            arranca_solo=estado["sesiones_historicas"] == 0,
         )
 
         def comenzar_click(e):
@@ -3072,6 +3187,9 @@ def main(page: ft.Page):
         )
 
         pantalla(texto_instrucciones, caja_video, ft.Divider(color=ft.Colors.TRANSPARENT), boton_comenzar)
+        # La pantalla que se acaba de dibujar: mientras siga siendo esta, el
+        # video vigila si arrancó.
+        a_la_vista["raiz"] = page.controls[0]
 
     # ==========================================================
     # PANTALLA 4: HORA DE LA COMIDA
