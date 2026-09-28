@@ -1260,8 +1260,27 @@ def main(page: ft.Page):
 
             entrar_con_usuario(usuario, local=False)
 
-        input_email = ft.TextField(label="Email", width=ancho_campo(), keyboard_type=ft.KeyboardType.EMAIL)
-        input_contrasena = ft.TextField(label="Contraseña", width=ancho_campo(), password=True, can_reveal_password=True)
+        # Enter en el email: si la contraseña ya está escrita, es como tocar
+        # "Ingresar"; si no, pasa derecho a la contraseña. focus() es una
+        # corrutina en Flet 0.84, por eso este handler es async.
+        async def enter_en_el_email(e):
+            if input_contrasena.value:
+                iniciar_sesion(e)
+            else:
+                await input_contrasena.focus()
+
+        # Enter en la contraseña es como tocar "Ingresar" (pedido de Gabriel,
+        # 28/09/2026: ir con el mouse al botón cada vez era muy pesado). En el
+        # celular hace lo mismo la tecla de "Ir" del teclado. No hay riesgo de
+        # entrar dos veces: Flet atiende los Enter de a uno, y los que llegan
+        # después de cambiar de pantalla los descarta, porque ese campo ya no
+        # está en la página.
+        input_email = ft.TextField(
+            label="Email", width=ancho_campo(), keyboard_type=ft.KeyboardType.EMAIL, on_submit=enter_en_el_email
+        )
+        input_contrasena = ft.TextField(
+            label="Contraseña", width=ancho_campo(), password=True, can_reveal_password=True, on_submit=iniciar_sesion
+        )
         texto_error = ft.Text("", color=ft.Colors.RED)
         boton_ingresar = ft.ElevatedButton("Ingresar", on_click=iniciar_sesion, width=ancho_campo(), height=50)
 
