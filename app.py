@@ -472,7 +472,14 @@ FONDO = None                # Ej: "fondo.png"  -> fondo de todas las pantallas
 # Video instructivo que se muestra antes de la primera encuesta. Vive en la
 # carpeta "assets" y la app lo sirve desde su propia dirección, así que no
 # depende de YouTube ni de ningún servicio externo. Es 1920x1080 (16:9).
-VIDEO_INSTRUCTIVO = "/instructivo.mp4"
+#
+# Cada app tiene el suyo, grabado con SU versión de la app (29/09/2026): la
+# app 1 el "Instructivo GC", la app 2 el "GG" y la app 3 el "GN". Se llama
+# instructivo_v2 para que ningún navegador siga mostrando el anterior desde
+# su memoria, como podía pasar si se reemplazaba con el mismo nombre. Se le
+# pasó el índice al principio del archivo (sin volver a comprimirlo), así
+# empieza a verse antes de terminar de bajar.
+VIDEO_INSTRUCTIVO = "/instructivo_v2.mp4"
 
 # Logos institucionales (ESN + Laboratorio de Neurociencia Di Tella), que van
 # en la pantalla de inicio y en el menú principal. El PNG tiene fondo
