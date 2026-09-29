@@ -695,6 +695,12 @@ def main(page: ft.Page):
             estado["items_temporales"]  = _items
             pantalla_funcion()
 
+        # Cada paso del historial recuerda qué pantalla es y de qué momento
+        # del día (comida, bloque de snacks y número de snack), para saber
+        # después si el camino guardado para adelante sigue sirviendo (ver
+        # es_la_de_adelante).
+        entry.pantalla = pantalla_funcion
+        entry.momento = (_idx, _ctx, _snk)
         historial.append(entry)
         pantalla_funcion()
 
@@ -711,11 +717,31 @@ def main(page: ft.Page):
             historial.append(fn)
             fn()
 
+    def es_la_de_adelante(pantalla_funcion, momento):
+        """Si la pantalla guardada para adelante es justo esta, del mismo
+        momento del día (comida, bloque de snacks y número de snack)."""
+        if not historial_adelante:
+            return False
+        siguiente = historial_adelante[-1]
+        return (
+            getattr(siguiente, "pantalla", None) is pantalla_funcion
+            and getattr(siguiente, "momento", None) == momento
+        )
+
     def avanzar_o_adelantar(fn_siguiente):
         """Al avanzar hacia adelante, si ya recorrimos estas pantallas antes
         (hay historial de avance), retomamos desde ahí en vez de crear una ruta
-        nueva. Así los datos de comidas ya cargadas se mantienen intactos."""
-        if historial_adelante:
+        nueva. Así los datos de comidas ya cargadas se mantienen intactos.
+
+        Pero SOLO si la pantalla guardada para adelante es justo la que toca
+        ahora. Si la persona volvió atrás y cambió la respuesta (había dicho
+        que no desayunó y ahora dice que sí), el camino guardado ya no sirve:
+        seguirlo la mandaba a la comida siguiente sin dejarla cargar lo que
+        comió (reportado con un video el 29/09/2026; pasaba en las 3 apps).
+        En ese caso se descarta y se va a la pantalla que corresponde.
+        """
+        momento = (estado["indice_comida"], estado["_contexto_snack"], estado["_snacks_en_bloque"])
+        if es_la_de_adelante(fn_siguiente, momento):
             adelantar()
         else:
             ir_a(fn_siguiente)
@@ -3226,16 +3252,25 @@ def main(page: ft.Page):
         estado["comidas"][idx]["items"] = estado["items_temporales"]
         estado["items_temporales"] = []
 
-        if historial_adelante:
-            adelantar()
-            return
-
-        comida_cerrada = idx
-        estado["indice_comida"] += 1
         # Los snacks se preguntan una sola vez, al final de las 4 comidas
         # principales (antes se preguntaba también entre desayuno/almuerzo
         # y entre merienda/cena).
-        if comida_cerrada == len(COMIDAS_DEL_DIA) - 1:
+        es_la_ultima = idx == len(COMIDAS_DEL_DIA) - 1
+
+        # Si la pantalla que sigue (la pregunta de la próxima comida, o la de
+        # snacks) quedó guardada para adelante porque la persona volvió atrás
+        # a corregir algo, se retoma desde ahí. Si lo guardado es otra cosa
+        # (cambió la respuesta), no: ver avanzar_o_adelantar.
+        if es_la_ultima:
+            siguiente = (mostrar_pregunta_snack, (idx + 1, "final", 0))
+        else:
+            siguiente = (mostrar_pregunta_hora, (idx + 1, None, 0))
+        if es_la_de_adelante(*siguiente):
+            adelantar()
+            return
+
+        estado["indice_comida"] += 1
+        if es_la_ultima:
             abrir_bloque_snack("final")
         else:
             ir_a(mostrar_pregunta_hora)
