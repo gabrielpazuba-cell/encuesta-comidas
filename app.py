@@ -591,6 +591,61 @@ CIERRE_ANCLAS = {
 }
 
 
+# ==========================================================
+# DESDE QUÉ APARATO SE HIZO CADA REGISTRO
+# ----------------------------------------------------------
+# Pedido de Gabriel (01/10/2026), igual en las tres apps: saber si cada
+# registro diario se hizo desde un celular, una tablet o una computadora.
+# Ver fila_del_dispositivo, adentro de main.
+# ==========================================================
+NOMBRES_DE_SISTEMA = {
+    ft.PagePlatform.ANDROID: "Android",
+    ft.PagePlatform.ANDROID_TV: "Android TV",
+    ft.PagePlatform.IOS: "iOS (iPhone o iPad)",
+    ft.PagePlatform.WINDOWS: "Windows",
+    ft.PagePlatform.MACOS: "macOS",
+    ft.PagePlatform.LINUX: "Linux",
+}
+
+
+def navegador_de(agente):
+    """El navegador, sacado del "user agent" (lo que el navegador dice de sí
+    mismo). El orden importa: Edge, Opera y el de Samsung también dicen
+    "Chrome", y Chrome también dice "Safari"."""
+    agente = agente or ""
+    for marca, nombre in (
+        ("SamsungBrowser", "Samsung Internet"),
+        ("EdgA/", "Edge"),
+        ("EdgiOS/", "Edge"),
+        ("Edg/", "Edge"),
+        ("OPR/", "Opera"),
+        ("FxiOS/", "Firefox"),
+        ("Firefox/", "Firefox"),
+        ("CriOS/", "Chrome"),
+        ("Chrome/", "Chrome"),
+        ("Safari/", "Safari"),
+    ):
+        if marca in agente:
+            return nombre
+    return "otro"
+
+
+def tipo_de_aparato(plataforma, ancho, alto):
+    """Devuelve "celular", "tablet" o "computadora", según el sistema y la
+    pantalla.
+
+    En Android y en iOS decide la pantalla: si su lado más corto mide menos
+    de 600 puntos es un celular, y si no, una tablet (es el mismo corte que
+    usa Android). Flutter reconoce el iPad como iOS aunque su navegador se
+    presente como una Mac.
+    """
+    if plataforma in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS):
+        return "celular" if min(ancho or 0, alto or 0) < 600 else "tablet"
+    if plataforma in (ft.PagePlatform.WINDOWS, ft.PagePlatform.MACOS, ft.PagePlatform.LINUX):
+        return "computadora"
+    return "otro"
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
@@ -3768,6 +3823,40 @@ def main(page: ft.Page):
         if es_primera_carga:
             estado["fecha_primera_carga"] = hoy
 
+    def fila_del_dispositivo(fecha_str):
+        """La fila que dice desde qué aparato se hizo el registro del día.
+
+        Va en la misma tabla que las comidas, con tipo_registro "dispositivo"
+        (no hubo que tocar la estructura de la base), y queda atada a la
+        persona (usuario) y a su registro del día (la misma fecha que sus
+        comidas):
+
+          item_nombre     "celular", "tablet" o "computadora"
+          item_categoria  el sistema (Android, iOS, Windows, macOS, Linux)
+          item_detalle    el navegador, el tamaño de la pantalla y el "user
+                          agent" completo, por si después hace falta
+                          clasificar más fino
+
+        La dirección IP NO se guarda: no hace falta y es un dato más sensible.
+        """
+        ancho, alto = page.width or 0, page.height or 0
+        agente = page.client_user_agent or ""
+        return {
+            "usuario": estado["email"],
+            "fecha": fecha_str,
+            "momento_dia": "dispositivo",
+            "hora_consumo": None,
+            "item_nombre": tipo_de_aparato(page.platform, ancho, alto),
+            "item_categoria": NOMBRES_DE_SISTEMA.get(page.platform, "desconocido"),
+            "item_detalle": (
+                f"navegador: {navegador_de(agente)} | pantalla: {int(ancho)}x{int(alto)} | agente: {agente}"
+            ),
+            "item_tamano": None,
+            "tipo_registro": "dispositivo",
+            "tuvo_comida": None,
+            "tiempo_respuesta_seg": None,
+        }
+
     def enviar_datos_y_mostrar_agradecimiento():
         texto_estado = ft.Text("Guardando tus respuestas...", size=15, color=ft.Colors.GREY_700)
         pantalla(
@@ -3842,6 +3931,16 @@ def main(page: ft.Page):
                         mostrar_volver=False,
                     )
                     return
+
+            # Desde qué aparato se hizo este registro (ver fila_del_dispositivo).
+            # Va aparte y sin frenar nada: si no se pudiera guardar, el registro
+            # del día ya quedó completo y la persona sigue de largo igual.
+            try:
+                guardado, _ = enviar_o_actualizar_registro(fila_del_dispositivo(ahora_str), None)
+                if not guardado:
+                    print("No se pudo guardar el aparato del registro (el registro sí quedó).")
+            except Exception as error:
+                print("Error al armar la fila del aparato (el registro sí quedó):", repr(error))
 
             marcar_usuario_completado_hoy()
             historial.clear()

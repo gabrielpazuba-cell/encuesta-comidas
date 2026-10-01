@@ -200,6 +200,30 @@ def armar_planilla_de_comidas(filas):
     return seleccionadas
 
 
+def armar_planilla_de_dispositivo(filas):
+    """Desde qué aparato hizo cada persona cada registro diario.
+
+    Una fila por registro completo, desde el 01/10/2026 (los anteriores no
+    tienen el dato). "aparato" es celular, tablet o computadora; "detalle"
+    trae el navegador, el tamaño de la pantalla y el user agent completo.
+    """
+    legibles = []
+    for fila in filas:
+        if fila.get("tipo_registro") != "dispositivo":
+            continue
+        legibles.append(
+            {
+                "usuario": fila.get("usuario"),
+                "fecha": fila.get("fecha"),
+                "aparato": fila.get("item_nombre"),
+                "sistema": fila.get("item_categoria"),
+                "detalle": fila.get("item_detalle"),
+            }
+        )
+    legibles.sort(key=lambda r: (str(r["usuario"]), str(r["fecha"])))
+    return legibles
+
+
 def armar_zip(csvs_por_tabla):
     """Mete todos los CSV en un solo archivo comprimido, en memoria."""
     buffer = io.BytesIO()
@@ -226,6 +250,8 @@ def armar_mail(remitente, destino, nombre_archivo, contenido_zip, resumen):
         "  2-registros-de-comidas-> lo que comió cada uno los 5 días, y el\n"
         "                           consentimiento (columna tipo_registro)\n"
         "  3-encuesta-final      -> la encuesta de cierre, escala 1 a 7\n"
+        "  4-dispositivo         -> desde qué aparato hizo cada uno cada\n"
+        "                           registro (celular, tablet o computadora)\n"
         "  copia-completa-...    -> copia técnica de la tabla entera, para\n"
         "                           restaurar la base si hiciera falta\n\n"
         "--\n"
@@ -312,6 +338,11 @@ def main():
                 leer_lista_de_app("AFIRMACIONES_CIERRE"),
             ),
             COLUMNAS_ESCALA,
+        ),
+        (
+            "4-dispositivo",
+            armar_planilla_de_dispositivo(filas_encuesta),
+            ["usuario", "fecha", "aparato", "sistema", "detalle"],
         ),
         ("copia-completa-encuesta_comidas", filas_encuesta, None),
     ]
