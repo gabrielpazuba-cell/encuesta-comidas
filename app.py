@@ -646,6 +646,24 @@ def tipo_de_aparato(plataforma, ancho, alto):
     return "otro"
 
 
+# ==========================================================
+# AVISOS EN ROJO DEBAJO DE LOS CAMPOS
+# ----------------------------------------------------------
+# En Flet 0.84 los campos de texto llaman a ese aviso `error`, y los
+# desplegables `error_text`. Con el nombre equivocado Flet no protesta: el
+# aviso simplemente no aparece. Pasó en las tres apps: en "Contanos sobre
+# vos" salía "Revisá los campos marcados en rojo" sin nada en rojo, porque
+# Nombre, Edad y Ocupación no se marcaban (lo encontró una colaboradora,
+# 05/10/2026). Por eso todos los avisos pasan por acá.
+# ==========================================================
+def marcar_error(campo, texto):
+    """Pone el aviso en rojo debajo de un campo, o lo saca con None."""
+    if isinstance(campo, ft.Dropdown):
+        campo.error_text = texto
+    else:
+        campo.error = texto
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
@@ -1291,16 +1309,16 @@ def main(page: ft.Page):
 
             email = valor.lower()
             if "@" not in email or "." not in email.split("@")[-1]:
-                input_email.error_text = "Ingresá un email válido"
+                marcar_error(input_email, "Ingresá un email válido")
                 page.update()
                 return
-            input_email.error_text = None
+            marcar_error(input_email, None)
 
             if len(contrasena) < 6:
-                input_contrasena.error_text = "La contraseña tiene que tener al menos 6 caracteres"
+                marcar_error(input_contrasena, "La contraseña tiene que tener al menos 6 caracteres")
                 page.update()
                 return
-            input_contrasena.error_text = None
+            marcar_error(input_contrasena, None)
 
             texto_error.value = ""
             boton_ingresar.disabled = True
@@ -1987,7 +2005,7 @@ def main(page: ft.Page):
 
         def on_dropdown_change(e):
             input_cantidad_exacta.visible = dropdown_investigaciones.value == OPCION_MAS_DE_10
-            input_cantidad_exacta.error_text = None
+            marcar_error(input_cantidad_exacta, None)
             error_investigaciones.value = ""
             page.update()
 
@@ -2011,14 +2029,14 @@ def main(page: ft.Page):
             ok = True
             error_investigaciones.value = ""
             error_motivacion.value = ""
-            input_cantidad_exacta.error_text = None
+            marcar_error(input_cantidad_exacta, None)
 
             if not dropdown_investigaciones.value:
                 error_investigaciones.value = "Elegí una opción"
                 ok = False
             elif dropdown_investigaciones.value == OPCION_MAS_DE_10:
                 if not (input_cantidad_exacta.value or "").strip():
-                    input_cantidad_exacta.error_text = "Escribí la cantidad"
+                    marcar_error(input_cantidad_exacta, "Escribí la cantidad")
                     ok = False
 
             if not (input_motivacion.value or "").strip():
@@ -2872,7 +2890,7 @@ def main(page: ft.Page):
         def guardar(e):
             texto_error.value = ""
             for campo in campos_del_perfil:
-                campo.error_text = None
+                marcar_error(campo, None)
 
             nombre_valor = (input_nombre.value or "").strip()
             edad_texto = (input_edad.value or "").strip()
@@ -2891,12 +2909,12 @@ def main(page: ft.Page):
                 (dropdown_ubicacion, dropdown_ubicacion.value),
             ]:
                 if not valor:
-                    campo.error_text = OBLIGATORIO
+                    marcar_error(campo, OBLIGATORIO)
                     hay_error = True
 
             # La edad, además de estar completa, tiene que ser un número.
             if edad_texto and not edad_texto.isdigit():
-                input_edad.error_text = "Ingresá tu edad en números"
+                marcar_error(input_edad, "Ingresá tu edad en números")
                 hay_error = True
 
             # Pregunta de seguridad: solo se le pide a quien tiene contraseña
@@ -2913,10 +2931,10 @@ def main(page: ft.Page):
             if pide_seguridad:
                 obligatoria = es_primera_vez or not estado.get("pregunta_seguridad")
                 if not dropdown_pregunta_seguridad.value and (obligatoria or respuesta_valor):
-                    dropdown_pregunta_seguridad.error_text = OBLIGATORIO
+                    marcar_error(dropdown_pregunta_seguridad, OBLIGATORIO)
                     hay_error = True
                 if not respuesta_valor and (obligatoria or dropdown_pregunta_seguridad.value):
-                    input_respuesta_seguridad.error_text = OBLIGATORIO
+                    marcar_error(input_respuesta_seguridad, OBLIGATORIO)
                     hay_error = True
 
             # Un solo corte con todos los campos ya marcados, para que la
@@ -3396,7 +3414,7 @@ def main(page: ft.Page):
         def cambio_hora(e):
             campo_hora.value = e.control.value.strftime("%H:%M")
             estado["hora_ingresada"] = campo_hora.value
-            campo_hora.error_text = None
+            marcar_error(campo_hora, None)
             page.update()
 
         # entry_mode=INPUT: el reloj se abre directo en modo teclado, para
@@ -3421,7 +3439,7 @@ def main(page: ft.Page):
 
         def confirmar_hora(e):
             if not campo_hora.value:
-                campo_hora.error_text = "Elegí una hora"
+                marcar_error(campo_hora, "Elegí una hora")
                 page.update()
                 return
             idx = estado["indice_comida"]
