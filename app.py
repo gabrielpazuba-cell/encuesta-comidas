@@ -664,6 +664,30 @@ def marcar_error(campo, texto):
         campo.error = texto
 
 
+# ==========================================================
+# TOQUES REPETIDOS EN LAS PREGUNTAS DE SÍ / NO
+# ----------------------------------------------------------
+# Las preguntas de cada comida ("¿Ayer merendaste?", "¿Ayer cenaste?") y la
+# de si se comió algo fuera de las comidas tienen el "Sí" y el "No" en el
+# mismo lugar de la pantalla. Si alguien tocaba "No" dos veces seguidas
+# (por ejemplo porque la página tardaba en responder), el segundo toque caía
+# en la pregunta siguiente apenas aparecía y la contestaba "No" sin que la
+# persona llegara a verla. Le pasó a una participante de la app 1: le quedó
+# que no cenó (reportado el 09/10/2026). Por eso esos botones no hacen caso
+# durante el primer segundo después de que aparece la pregunta. Nadie la lee
+# y contesta tan rápido, así que a quien contesta normal no le cambia nada.
+# ==========================================================
+ESPERA_ANTES_DE_RESPONDER = 1.0  # segundos
+
+
+def toque_apurado(aparecio):
+    """Si el toque llegó antes de que pasara ESPERA_ANTES_DE_RESPONDER desde
+    que apareció la pregunta (aparecio es el time.monotonic() de ese
+    momento). En ese caso es un toque repetido de la pantalla anterior, y se
+    ignora."""
+    return time.monotonic() - aparecio < ESPERA_ANTES_DE_RESPONDER
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
@@ -3462,12 +3486,16 @@ def main(page: ft.Page):
         ], visible=False, spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
         def si_click(e):
+            if toque_apurado(inicio_pregunta):
+                return  # toque repetido de la pantalla anterior (ver toque_apurado)
             boton_si.visible = False
             boton_no.visible = False
             seccion_hora.visible = True
             page.update()
 
         def no_click(e):
+            if toque_apurado(inicio_pregunta):
+                return  # toque repetido de la pantalla anterior (ver toque_apurado)
             idx = estado["indice_comida"]
             estado["comidas"][idx]["tuvo"] = False
             estado["comidas"][idx]["hora"] = None
@@ -3713,13 +3741,27 @@ def main(page: ft.Page):
         )
 
         # Mismo formato que las comidas principales: dos botones al lado,
-        # solo "Sí" y "No".
+        # solo "Sí" y "No". Los dos ignoran el toque que llega apenas
+        # aparece la pregunta (ver toque_apurado): acá un "No" de más es
+        # todavía peor, porque termina el registro del día.
+        aparecio = time.monotonic()
+
+        def si_click(e):
+            if toque_apurado(aparecio):
+                return  # toque repetido de la pantalla anterior
+            ir_a(mostrar_hora_snack)
+
+        def no_click(e):
+            if toque_apurado(aparecio):
+                return  # toque repetido de la pantalla anterior
+            cerrar_bloque_snack()
+
         boton_agregar = ft.ElevatedButton(
-            "Sí", on_click=lambda _: ir_a(mostrar_hora_snack),
+            "Sí", on_click=si_click,
             width=ancho_campo() // 2 - 5, height=50,
         )
         boton_terminar = ft.OutlinedButton(
-            "No", on_click=lambda _: cerrar_bloque_snack(),
+            "No", on_click=no_click,
             width=ancho_campo() // 2 - 5, height=50,
         )
 
