@@ -60,7 +60,7 @@ EMAIL_CONTACTO = "gamification.utdt@gmail.com"
 # dos, la persona ya no puede completar más encuestas ni entrar al resto de la
 # app: solo ve la pantalla de agradecimiento correspondiente.
 MAX_CARGAS = 5           # cargas completas por participante
-DIAS_PARTICIPACION = 10  # días disponibles, contados desde la primera carga
+DIAS_PARTICIPACION = 15  # días disponibles, contados desde la primera carga (eran 10 hasta el 06/11/2026)
 
 # Horario habitual de cada comida: se usa como sugerencia inicial en el
 # reloj, pero cada persona lo puede editar libremente antes de confirmar.

@@ -10,7 +10,7 @@ confiable.
 A quién le manda (tienen que cumplirse TODAS):
   - Ya hizo su primera carga (tiene fecha_primera_carga).
   - Todavía no llegó a las 5 cargas.
-  - Está dentro de los primeros 5 días contados desde su primera carga.
+  - Está dentro de los primeros 7 días contados desde su primera carga.
   - Hoy todavía no completó el registro.
 
 Variables de entorno que necesita:
@@ -40,7 +40,7 @@ import requests
 
 # --- Reglas del estudio (tienen que coincidir con las de app.py) ---
 MAX_CARGAS = 5           # al llegar acá, la persona terminó y no recibe más recordatorios
-DIAS_RECORDATORIO = 5    # cuántos días se manda, desde la primera carga
+DIAS_RECORDATORIO = 7    # cuántos días se manda, desde la primera carga (eran 5 hasta el 06/11/2026)
 
 URL_APP = "https://encuesta-comidas.onrender.com"
 ZONA_ARGENTINA = timezone(timedelta(hours=-3))
