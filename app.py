@@ -2,7 +2,6 @@ import flet as ft
 import flet_video as ftv
 import asyncio
 import time
-import threading
 import requests
 import unicodedata
 import difflib
@@ -990,14 +989,18 @@ def main(page: ft.Page):
     # cero. Para evitarlo, mientras se está mostrando cualquier pantalla
     # mandamos una actualización liviana cada 20 segundos, así la conexión
     # nunca queda del todo quieta. Cada pantalla nueva cancela el latido
-    # de la anterior (por eso el token), para no ir acumulando hilos.
+    # de la anterior (por eso el token), para no ir acumulando latidos.
+    #
+    # Desde el 11/11/2026 es una tarea del event loop (ver lanzar_tarea) en
+    # vez de un hilo aparte: Flet no está hecho para que se le actualice la
+    # pantalla desde otro hilo, y eso podía demorar o mezclar pantallas.
     def _iniciar_latido():
         token = object()
         estado["_latido_token"] = token
 
-        def loop():
+        async def latir():
             while estado.get("_latido_token") is token:
-                time.sleep(20)
+                await asyncio.sleep(20)
                 if estado.get("_latido_token") is not token:
                     return
                 try:
@@ -1005,7 +1008,7 @@ def main(page: ft.Page):
                 except Exception:
                     return
 
-        threading.Thread(target=loop, daemon=True).start()
+        lanzar_tarea(latir)
 
     # Botón de contacto: se usa en el login y en el menú principal.
     #
@@ -1956,10 +1959,11 @@ def main(page: ft.Page):
         minutos, segundos = divmod(resto, 60)
         return f"{horas:02d}:{minutos:02d}:{segundos:02d}"
 
+    # Tarea del event loop, no un hilo aparte (ver _iniciar_latido).
     def iniciar_countdown(texto_control, token):
-        def loop():
+        async def contar():
             while estado.get("_dashboard_token") is token:
-                time.sleep(1)
+                await asyncio.sleep(1)
                 if estado.get("_dashboard_token") is not token:
                     return
                 if not esta_habilitado_hoy():
@@ -1973,7 +1977,7 @@ def main(page: ft.Page):
                     ir_a(mostrar_dashboard)
                     return
 
-        threading.Thread(target=loop, daemon=True).start()
+        lanzar_tarea(contar)
 
     def cerrar_sesion(e):
         estado["email"] = ""
@@ -4108,7 +4112,10 @@ def main(page: ft.Page):
             mostrar_volver=False,
         )
 
-        def _enviar():
+        # Tarea del event loop, no un hilo aparte (ver _iniciar_latido): los
+        # pedidos a Supabase van con asyncio.to_thread, y la pantalla se toca
+        # solo desde acá.
+        async def _enviar():
             ahora_str = ahora_argentina().strftime("%Y-%m-%dT%H:%M:%S")
             registros = []
 
@@ -4162,7 +4169,7 @@ def main(page: ft.Page):
                         })
 
             for reg in registros:
-                exito, _ = enviar_o_actualizar_registro(reg, None)
+                exito, _ = await asyncio.to_thread(enviar_o_actualizar_registro, reg, None)
                 if not exito:
                     texto_estado.value = "Hubo un problema al guardar. ¿Reintentamos?"
                     boton_reintentar = ft.ElevatedButton("Reintentar", on_click=lambda e: ir_a(enviar_datos_y_mostrar_agradecimiento))
@@ -4179,13 +4186,13 @@ def main(page: ft.Page):
             # Va aparte y sin frenar nada: si no se pudiera guardar, el registro
             # del día ya quedó completo y la persona sigue de largo igual.
             try:
-                guardado, _ = enviar_o_actualizar_registro(fila_del_dispositivo(ahora_str), None)
+                guardado, _ = await asyncio.to_thread(enviar_o_actualizar_registro, fila_del_dispositivo(ahora_str), None)
                 if not guardado:
                     print("No se pudo guardar el aparato del registro (el registro sí quedó).")
             except Exception as error:
                 print("Error al armar la fila del aparato (el registro sí quedó):", repr(error))
 
-            marcar_usuario_completado_hoy()
+            await asyncio.to_thread(marcar_usuario_completado_hoy)
             historial.clear()
             historial_adelante.clear()
 
@@ -4206,10 +4213,10 @@ def main(page: ft.Page):
                 ),
                 mostrar_volver=False,
             )
-            time.sleep(1.5)
+            await asyncio.sleep(1.5)
             ir_a(mostrar_encuesta_cierre if ultima_carga else mostrar_dashboard)
 
-        threading.Thread(target=_enviar, daemon=True).start()
+        lanzar_tarea(_enviar)
 
     # Arranque de la app
     ir_a(mostrar_bienvenida)
