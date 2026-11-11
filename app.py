@@ -676,6 +676,8 @@ def marcar_error(campo, texto):
 # que no cenó (reportado el 09/10/2026). Por eso esos botones no hacen caso
 # durante el primer segundo después de que aparece la pregunta. Nadie la lee
 # y contesta tan rápido, así que a quien contesta normal no le cambia nada.
+# Desde el 11/11/2026 los botones además llegan desactivados durante ese
+# segundo (ver esperar_antes_de_responder, dentro de main).
 # ==========================================================
 ESPERA_ANTES_DE_RESPONDER = 1.0  # segundos
 
@@ -1168,6 +1170,46 @@ def main(page: ft.Page):
         tarea = loop.create_task(con_aviso_de_error())
         tareas_en_curso.add(tarea)
         tarea.add_done_callback(tareas_en_curso.discard)
+
+    # ----------------------------------------------------------
+    # EL SÍ Y EL NO LLEGAN DESACTIVADOS DURANTE UN SEGUNDO
+    # ----------------------------------------------------------
+    # Complemento de toque_apurado (arreglo del 11/11/2026). toque_apurado
+    # mide el segundo con el reloj del servidor: desde que dibuja la pregunta
+    # hasta que le llega el toque. Con la conexión lenta, un toque repetido
+    # puede tardar más de un segundo en llegar y contar igual como respuesta.
+    # Por eso ahora el Sí y el No llegan al celular desactivados y el
+    # servidor los activa un segundo después: el toque repetido se pierde en
+    # el propio celular, tarde lo que tarde la conexión. Desactivados se ven
+    # exactamente igual que activos (son los colores de siempre de Flet,
+    # comparados en pantalla el 11/11/2026), así que la persona no nota
+    # nada. toque_apurado queda como segunda red.
+    #
+    # Se llama ANTES de pantalla(), para que el primer dibujo ya llegue con
+    # los botones desactivados.
+    def esperar_antes_de_responder(boton_si, boton_no):
+        def siempre(valor):
+            return {ft.ControlState.DEFAULT: valor, ft.ControlState.DISABLED: valor}
+
+        boton_si.disabled = True
+        boton_no.disabled = True
+        boton_si.style = ft.ButtonStyle(
+            color=siempre(ft.Colors.PRIMARY),
+            bgcolor=siempre(ft.Colors.SURFACE_CONTAINER_LOW),
+            elevation={ft.ControlState.HOVERED: 3, ft.ControlState.DEFAULT: 1, ft.ControlState.DISABLED: 1},
+        )
+        boton_no.style = ft.ButtonStyle(
+            color=siempre(ft.Colors.PRIMARY),
+            side=siempre(ft.BorderSide(1, ft.Colors.OUTLINE)),
+        )
+
+        async def activar():
+            await asyncio.sleep(ESPERA_ANTES_DE_RESPONDER)
+            boton_si.disabled = False
+            boton_no.disabled = False
+            page.update()
+
+        lanzar_tarea(activar)
 
     def buscar_usuario_por_email(email):
         try:
@@ -3642,6 +3684,7 @@ def main(page: ft.Page):
 
         boton_si = ft.ElevatedButton("Sí", on_click=si_click, width=ancho_campo() // 2 - 5, height=50)
         boton_no = ft.OutlinedButton("No", on_click=no_click, width=ancho_campo() // 2 - 5, height=50)
+        esperar_antes_de_responder(boton_si, boton_no)
 
         pantalla(
             titulo,
@@ -3903,6 +3946,7 @@ def main(page: ft.Page):
             "No", on_click=no_click,
             width=ancho_campo() // 2 - 5, height=50,
         )
+        esperar_antes_de_responder(boton_agregar, boton_terminar)
 
         pantalla(
             titulo,
