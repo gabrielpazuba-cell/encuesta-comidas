@@ -688,6 +688,50 @@ def toque_apurado(aparecio):
     return time.monotonic() - aparecio < ESPERA_ANTES_DE_RESPONDER
 
 
+# ==========================================================
+# RESPUESTAS DEL NAVEGADOR QUE LLEGAN TARDE
+# ----------------------------------------------------------
+# Algunas cosas el servidor se las tiene que preguntar al navegador y esperar
+# la respuesta: por ejemplo, si el video está andando (ver vigilar_arranque).
+# Si mientras la respuesta viaja la persona cambia de pantalla (tocó "Ya lo
+# vi, continuar" o "Atrás"), el video deja de existir para el servidor. Flet
+# 0.84 trata esa respuesta tardía como un error grave: corta la conexión con
+# ese navegador, y la persona se queda con la pantalla trabada o tiene que
+# recargar la página y perder lo que venía cargando. Esto se veía en la
+# pantalla del video, que en la app 1 sale todos los días (reportado el
+# 04/11 y el 10/11/2026).
+#
+# Arreglo (11/11/2026): una respuesta tardía se entrega igual a quien la
+# estaba esperando, y la conexión sigue. No hace falta nada más: quien
+# preguntaba ve que su pantalla ya no está y termina solo.
+#
+# Toca una pieza interna de Flet, así que depende de la versión: está fija
+# en 0.84.0 en requirements.txt. Si algún día se cambia, revisar que
+# handle_invoke_method_results siga existiendo y haciendo lo mismo.
+# ==========================================================
+from flet.messaging.session import Session as _SesionDeFlet
+
+_atender_respuesta_de_flet = _SesionDeFlet.handle_invoke_method_results
+
+
+def _atender_respuesta_sin_cortar(self, control_id, call_id, result, error):
+    try:
+        _atender_respuesta_de_flet(self, control_id, call_id, result, error)
+    except RuntimeError:
+        # El control ya no está en pantalla. Se le entrega la respuesta a
+        # quien la esperaba (si todavía la espera), para que no quede colgado.
+        esperando = getattr(self, "_Session__method_calls", {})
+        respuestas = getattr(self, "_Session__method_call_results", None)
+        aviso = esperando.pop(call_id, None)
+        if aviso is not None and respuestas is not None:
+            respuestas[aviso] = (result, error)
+            aviso.set()
+        print(f"Respuesta tardía del navegador (control {control_id} ya fuera de pantalla): se ignora sin cortar la conexión.")
+
+
+_SesionDeFlet.handle_invoke_method_results = _atender_respuesta_sin_cortar
+
+
 def main(page: ft.Page):
     page.title = "Registro Diario de Comidas"
     # El tamaño de ventana fijo solo tiene sentido en escritorio. En celular
