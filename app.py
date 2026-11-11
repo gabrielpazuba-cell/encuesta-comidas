@@ -1115,6 +1115,60 @@ def main(page: ft.Page):
         texto_control.value = mensaje
         page.update()
 
+    # ----------------------------------------------------------
+    # BOTONES QUE ESPERAN A LA BASE DE DATOS
+    # ----------------------------------------------------------
+    # Flet atiende a TODOS los participantes conectados con un solo
+    # "mozo" (el event loop). Un botón común (def) que le pregunta algo a
+    # Supabase deja al mozo parado esperando la respuesta, y mientras tanto
+    # no atiende a nadie más: a los demás se les congela la pantalla y sus
+    # toques se acumulan y llegan todos juntos después. Por eso esos botones
+    # son async y la espera va con asyncio.to_thread: la consulta se hace
+    # aparte y el mozo sigue atendiendo (arreglo del 11/11/2026).
+    #
+    # Un botón async tiene una contra: si llega un segundo toque mientras el
+    # primero espera, Flet arranca otra copia en paralelo. de_a_uno lo evita:
+    # mientras una copia está trabajando, los toques que llegan se ignoran.
+    def de_a_uno(handler):
+        trabajando = {"valor": False}
+
+        async def envuelto(e=None):
+            if trabajando["valor"]:
+                return
+            trabajando["valor"] = True
+            try:
+                await handler(e)
+            finally:
+                trabajando["valor"] = False
+
+        return envuelto
+
+    # Tareas que siguen trabajando después de dibujar una pantalla (traer el
+    # resumen, el latido, la cuenta regresiva, el guardado final). Corren en
+    # el mismo event loop, sin hilos aparte, así que pueden tocar la pantalla
+    # sin pisarse. asyncio solo se acuerda de cada tarea "de reojo" y podría
+    # descartarla a mitad de camino: por eso quedan anotadas acá hasta que
+    # terminan. Si una falla, queda el aviso en el registro del servidor.
+    tareas_en_curso = set()
+
+    def lanzar_tarea(corrutina, *args):
+        async def con_aviso_de_error():
+            try:
+                await corrutina(*args)
+            except Exception as error:
+                print(f"Error en una tarea de fondo ({corrutina.__name__}):", repr(error))
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Llamada desde fuera del event loop (no debería pasar): se la
+            # pasamos a Flet, que sabe meterla en el loop desde un hilo.
+            page.run_task(con_aviso_de_error)
+            return
+        tarea = loop.create_task(con_aviso_de_error())
+        tareas_en_curso.add(tarea)
+        tarea.add_done_callback(tareas_en_curso.discard)
+
     def buscar_usuario_por_email(email):
         try:
             resp = requests.get(
@@ -1352,7 +1406,11 @@ def main(page: ft.Page):
         async def iniciar_con_google(e):
             await page.login(google_provider)
 
-        def iniciar_sesion(e):
+        # async: busca o crea la cuenta en Supabase (ver de_a_uno). La
+        # contraseña también se calcula aparte: son 600.000 vueltas de
+        # cálculo y en el servidor tardan casi un segundo.
+        @de_a_uno
+        async def iniciar_sesion(e):
             valor = (input_email.value or "").strip()
             contrasena = input_contrasena.value or ""
 
@@ -1393,7 +1451,7 @@ def main(page: ft.Page):
             boton_ingresar.text = "Ingresando..."
             page.update()
 
-            usuario, ok = buscar_usuario_por_email(email)
+            usuario, ok = await asyncio.to_thread(buscar_usuario_por_email, email)
 
             if not ok:
                 boton_ingresar.disabled = False
@@ -1405,8 +1463,8 @@ def main(page: ft.Page):
                 # Cuenta nueva: se registra con esta contraseña, con una
                 # sal aleatoria propia (no derivada del email).
                 salt_nueva = generar_salt()
-                hash_nuevo = hash_contrasena(contrasena, salt_nueva)
-                usuario = crear_usuario(email, hash_nuevo, salt_nueva)
+                hash_nuevo = await asyncio.to_thread(hash_contrasena, contrasena, salt_nueva)
+                usuario = await asyncio.to_thread(crear_usuario, email, hash_nuevo, salt_nueva)
                 boton_ingresar.disabled = False
                 boton_ingresar.text = "Ingresar"
                 if usuario is None:
@@ -1427,7 +1485,7 @@ def main(page: ft.Page):
                 mostrar_error(texto_error, "Hubo un problema con tu cuenta. Contactanos para ayudarte a recuperarla.")
                 return
 
-            hash_ingresado = hash_contrasena(contrasena, salt_guardada)
+            hash_ingresado = await asyncio.to_thread(hash_contrasena, contrasena, salt_guardada)
             if usuario.get("password_hash") != hash_ingresado:
                 mostrar_error(texto_error, "Contraseña incorrecta.")
                 return
@@ -1439,7 +1497,7 @@ def main(page: ft.Page):
         # corrutina en Flet 0.84, por eso este handler es async.
         async def enter_en_el_email(e):
             if input_contrasena.value:
-                iniciar_sesion(e)
+                await iniciar_sesion(e)
             else:
                 await input_contrasena.focus()
 
@@ -1500,7 +1558,9 @@ def main(page: ft.Page):
         texto_error = ft.Text("", color=ft.Colors.RED)
         boton_continuar = ft.ElevatedButton("Continuar", width=ancho_campo(), height=50)
 
-        def continuar(e):
+        # async: busca la cuenta en Supabase (ver de_a_uno).
+        @de_a_uno
+        async def continuar(e):
             email = (input_email.value or "").strip().lower()
             if "@" not in email or "." not in email.split("@")[-1]:
                 mostrar_error(texto_error, "Ingresá un email válido.")
@@ -1510,7 +1570,7 @@ def main(page: ft.Page):
             boton_continuar.text = "Buscando..."
             page.update()
 
-            usuario, ok = buscar_usuario_por_email(email)
+            usuario, ok = await asyncio.to_thread(buscar_usuario_por_email, email)
 
             boton_continuar.disabled = False
             boton_continuar.text = "Continuar"
@@ -1551,13 +1611,18 @@ def main(page: ft.Page):
         input_respuesta = ft.TextField(label="Tu respuesta", width=ancho_campo())
         texto_error = ft.Text("", color=ft.Colors.RED)
 
-        def continuar(e):
+        # async: la respuesta se calcula aparte, igual que la contraseña (ver
+        # iniciar_sesion y de_a_uno).
+        @de_a_uno
+        async def continuar(e):
             respuesta = (input_respuesta.value or "").strip()
             if not respuesta:
                 mostrar_error(texto_error, "Escribí tu respuesta para poder seguir.")
                 return
             respuesta_normalizada = _normalizar_texto(respuesta)
-            hash_ingresado = hash_contrasena(respuesta_normalizada, usuario["respuesta_seguridad_salt"])
+            hash_ingresado = await asyncio.to_thread(
+                hash_contrasena, respuesta_normalizada, usuario["respuesta_seguridad_salt"]
+            )
             if hash_ingresado != usuario["respuesta_seguridad_hash"]:
                 mostrar_error(texto_error, "Esa no es la respuesta que tenemos guardada. Probá de nuevo.")
                 return
@@ -1579,7 +1644,9 @@ def main(page: ft.Page):
         texto_error = ft.Text("", color=ft.Colors.RED)
         boton_guardar = ft.ElevatedButton("Guardar nueva contraseña", width=ancho_campo(), height=50)
 
-        def guardar(e):
+        # async: calcula la contraseña y la guarda en Supabase (ver de_a_uno).
+        @de_a_uno
+        async def guardar(e):
             nueva = input_nueva.value or ""
             if len(nueva) < 6:
                 mostrar_error(texto_error, "La contraseña tiene que tener al menos 6 caracteres.")
@@ -1590,8 +1657,8 @@ def main(page: ft.Page):
             page.update()
 
             salt_nueva = generar_salt()
-            hash_nuevo = hash_contrasena(nueva, salt_nueva)
-            ok = actualizar_password_supabase(usuario["id"], hash_nuevo, salt_nueva)
+            hash_nuevo = await asyncio.to_thread(hash_contrasena, nueva, salt_nueva)
+            ok = await asyncio.to_thread(actualizar_password_supabase, usuario["id"], hash_nuevo, salt_nueva)
 
             boton_guardar.disabled = False
             boton_guardar.text = "Guardar nueva contraseña"
@@ -2091,7 +2158,8 @@ def main(page: ft.Page):
         error_motivacion = ft.Text("", color=ft.Colors.RED_700, size=12)
         enviando = {"valor": False}
 
-        def guardar(e):
+        # async: guarda las respuestas en Supabase (ver de_a_uno).
+        async def guardar(e):
             if enviando["valor"]:
                 return
             ok = True
@@ -2137,7 +2205,7 @@ def main(page: ft.Page):
                     "item_nombre": nombre_item,
                     "item_detalle": detalle_item,
                 }
-                exito, _ = enviar_o_actualizar_registro(registro, None)
+                exito, _ = await asyncio.to_thread(enviar_o_actualizar_registro, registro, None)
                 if not exito:
                     error = True
                     break
@@ -2280,7 +2348,8 @@ def main(page: ft.Page):
             width=ANCHO_TABLA,
         )
 
-        def guardar_encuesta_inicial(e):
+        # async: guarda las respuestas en Supabase (ver de_a_uno).
+        async def guardar_encuesta_inicial(e):
             if enviando["valor"]:
                 return
             falta = [i for i in range(len(AFIRMACIONES_INICIALES)) if i not in respuestas]
@@ -2314,7 +2383,7 @@ def main(page: ft.Page):
                     "item_nombre": f"afirmacion_{i + 1:02d}",
                     "item_detalle": respuestas[i],
                 }
-                exito, _ = enviar_o_actualizar_registro(registro, None)
+                exito, _ = await asyncio.to_thread(enviar_o_actualizar_registro, registro, None)
                 if not exito:
                     error = True
                     break
@@ -2955,7 +3024,10 @@ def main(page: ft.Page):
             dropdown_pregunta_seguridad, input_respuesta_seguridad,
         ]
 
-        def guardar(e):
+        # async: calcula la respuesta de seguridad y guarda el perfil en
+        # Supabase (ver de_a_uno).
+        @de_a_uno
+        async def guardar(e):
             texto_error.value = ""
             for campo in campos_del_perfil:
                 marcar_error(campo, None)
@@ -3028,7 +3100,7 @@ def main(page: ft.Page):
             if pide_seguridad and respuesta_valor and dropdown_pregunta_seguridad.value:
                 pregunta_valor = dropdown_pregunta_seguridad.value
                 salt_respuesta = generar_salt()
-                hash_respuesta = hash_contrasena(_normalizar_texto(respuesta_valor), salt_respuesta)
+                hash_respuesta = await asyncio.to_thread(hash_contrasena, _normalizar_texto(respuesta_valor), salt_respuesta)
 
             estado["nombre"] = nombre_valor
             estado["edad"] = edad_valor
@@ -3040,7 +3112,11 @@ def main(page: ft.Page):
                 estado["pregunta_seguridad"] = pregunta_valor
 
             if not estado["modo_local"]:
-                if not guardar_perfil_supabase(nombre_valor, edad_valor, genero_valor, educacion_valor, ocupacion_valor, ubicacion_valor, pregunta_valor, hash_respuesta, salt_respuesta):
+                guardado = await asyncio.to_thread(
+                    guardar_perfil_supabase, nombre_valor, edad_valor, genero_valor, educacion_valor,
+                    ocupacion_valor, ubicacion_valor, pregunta_valor, hash_respuesta, salt_respuesta,
+                )
+                if not guardado:
                     texto_error.value = "No pudimos guardar los cambios. Revisá tu conexión e intentá de nuevo."
                     page.update()
                     return
@@ -3098,6 +3174,24 @@ def main(page: ft.Page):
     def mostrar_resumen_historia():
         pantalla(ft.ProgressRing(), ft.Text("Cargando resumen...", size=18, color=ft.Colors.BLUE), mostrar_volver=False)
 
+        # Los registros se traen de Supabase aparte (ver de_a_uno, más
+        # arriba): esta pantalla se dibuja desde un botón común, y esperar
+        # la consulta acá adentro congelaba a todos los demás. Mientras
+        # tanto queda a la vista el "Cargando resumen...". Si la persona se
+        # va de la pantalla antes de que llegue la respuesta, no se dibuja
+        # nada encima de la pantalla nueva.
+        cargando = page.controls[0]
+
+        async def traer_y_mostrar():
+            registros = None
+            if not estado["modo_local"]:
+                registros = await asyncio.to_thread(obtener_registros_usuario, estado["email"])
+            if page.controls and page.controls[0] is cargando:
+                dibujar_resumen_historia(registros)
+
+        lanzar_tarea(traer_y_mostrar)
+
+    def dibujar_resumen_historia(registros):
         if estado["modo_local"]:
             pantalla(
                 ft.Icon(ft.Icons.AUTO_STORIES, size=50, color=ft.Colors.BLUE_GREY),
@@ -3109,8 +3203,6 @@ def main(page: ft.Page):
                 ),
             )
             return
-
-        registros = obtener_registros_usuario(estado["email"])
 
         if registros is None:
             pantalla(
@@ -3346,8 +3438,11 @@ def main(page: ft.Page):
             arranca_solo=estado["sesiones_historicas"] == 0,
         )
 
-        def comenzar_click(e):
-            marcar_instrucciones_vistas()
+        # async: la primera vez anota en Supabase que vio el video (ver
+        # marcar_instrucciones_vistas y de_a_uno).
+        @de_a_uno
+        async def comenzar_click(e):
+            await asyncio.to_thread(marcar_instrucciones_vistas)
             ir_a_pregunta_o_items()
 
         # Etiqueta explícita de "saltear": el video aparece todos los días y
