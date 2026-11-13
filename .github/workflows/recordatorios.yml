@@ -1,12 +1,33 @@
 name: Recordatorios diarios
 
-# 13:00 UTC = 10:00 de la mañana en Argentina (UTC-3). El cron de GitHub
-# siempre va en UTC y no ajusta por horario de verano, así que si algún día
-# cambia el huso hay que corregir este número a mano.
+# Nombre de cada corrida en la pestaña Actions. No es decorativo: el control
+# del respaldo (más abajo) busca las corridas que se llaman "Recordatorios de
+# las 10" para saber si ese día ya salieron los mails.
+run-name: "${{ github.event_name == 'schedule' && 'Recordatorios (respaldo de la tarde)' || inputs.test_email != '' && 'Recordatorios (mail de prueba)' || inputs.dry_run && 'Recordatorios (modo prueba)' || 'Recordatorios de las 10' }}"
+
+# CÓMO SALEN LOS RECORDATORIOS (desde el 13/11/2026)
 #
-# Nota: GitHub puede demorar la ejecución unos minutos si hay mucha carga.
-# Para una tarea diaria no es un problema.
+# A las 10:00 de Argentina los dispara un "despertador" externo: un Worker de
+# Cloudflare de la cuenta de Gabriel ("despertador-recordatorios") que llama a
+# la API de GitHub y corre este workflow en las TRES apps en el mismo
+# instante, con dry_run = false. El token de GitHub que usa está guardado como
+# secreto en Cloudflare y vence el 13/11/2027: hay que renovarlo antes, o los
+# mails pasan a salir solo con el respaldo, a la tarde.
+#
+# Por qué no alcanza con el horario programado de GitHub: GitHub no garantiza
+# la hora. Medido del 27/08 al 12/11/2026, los recordatorios programados para
+# las 10:00 salían entre las 13:00 y las 20:00 hora argentina (en las tres
+# apps a la vez, con pocos minutos de diferencia).
+#
+# El horario programado de abajo quedó como RESPALDO: cuando GitHub lo corre,
+# primero se fija si ese día ya hubo una corrida "Recordatorios de las 10" que
+# terminó bien (o que todavía está corriendo). Si la hubo, no hace nada. Si no
+# (falló el despertador, o falló esa corrida), manda los recordatorios igual,
+# tarde. Así no hay mail doble: enviar_recordatorios.py no se acuerda a quién
+# le mandó, solo saltea a quien ya cargó ese día.
 on:
+  # RESPALDO (ver arriba). 13:00 UTC = 10:00 de Argentina, la misma hora del
+  # despertador; con la demora de GitHub, en la práctica corre a la tarde.
   schedule:
     - cron: "0 13 * * *"
   # Permite dispararlo a mano desde la pestaña Actions, con la opción de
@@ -25,16 +46,49 @@ on:
 jobs:
   enviar:
     runs-on: ubuntu-latest
+    # Lo justo: leer el código y consultar las corridas anteriores (para el
+    # control del respaldo).
+    permissions:
+      contents: read
+      actions: read
     steps:
+      # Solo en el respaldo (horario de GitHub): si hoy ya salieron los de las
+      # 10, no hace nada. Tampoco manda fuera de horario (antes de las 10 o
+      # desde las 22, hora argentina), por si GitHub lo demora hasta la noche.
+      - name: Control del respaldo
+        id: control
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          hoy=$(date -u -d '-3 hours' +%F)
+          hora=$(date -u -d '-3 hours' +%H)
+          if [ "$hora" -lt 10 ] || [ "$hora" -ge 22 ]; then
+            echo "Son las $hora hs en Argentina: el respaldo no manda mails a esta hora."
+            echo "saltear=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ya=$(gh run list -R "$GITHUB_REPOSITORY" --workflow recordatorios.yml --event workflow_dispatch --limit 30 --json displayTitle,status,conclusion,createdAt --jq "[.[] | select(.displayTitle == \"Recordatorios de las 10\") | select((.createdAt | fromdateiso8601) - 10800 | strftime(\"%Y-%m-%d\") == \"$hoy\") | select(.status != \"completed\" or .conclusion == \"success\")] | length")
+          if [ "$ya" -gt 0 ]; then
+            echo "Hoy ($hoy) ya salieron los recordatorios de las 10: el respaldo no hace nada."
+            echo "saltear=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "Hoy ($hoy) NO salieron los recordatorios de las 10: el respaldo los manda ahora."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.control.outputs.saltear != '1'
 
       - uses: actions/setup-python@v5
+        if: steps.control.outputs.saltear != '1'
         with:
           python-version: "3.12"
 
       - run: pip install requests
+        if: steps.control.outputs.saltear != '1'
 
       - name: Enviar recordatorios
+        if: steps.control.outputs.saltear != '1'
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
